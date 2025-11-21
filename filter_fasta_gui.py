@@ -80,7 +80,6 @@ def filter_fasta(
 
     with input_path.open('r', encoding='utf-8', errors='replace') as fin, \
          output_path.open('w', encoding='utf-8') as fout:
-        current_header = None
         current_entry = []  # list[str] of original lines
 
         def flush_entry():
