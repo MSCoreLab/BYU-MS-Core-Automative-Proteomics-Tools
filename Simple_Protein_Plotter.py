@@ -18,6 +18,13 @@ class SimpleProteinPlotter:
     # Class-level constants
     ORGANISMS = ['HeLa', 'E.coli', 'Yeast']
     COLORS = {'HeLa': '#9b59b6', 'E.coli': '#e67e22', 'Yeast': '#16a085', 'Unknown': '#95a5a6'}
+    
+    # Organism pattern matching for faster identification
+    ORGANISM_PATTERNS = {
+        'HeLa': ['_HUMAN', 'HOMO_SAPIENS'],
+        'E.coli': ['_ECOLI', '_ECOL', '_ECO2', '_ECO5', '_ECO7', '_SHIF', '_SHIB', '_SHIS', 'ESCHERICHIA'],
+        'Yeast': ['_YEAST', 'SACCHAROMYCES', 'CEREVISIAE']
+    }
 
     def __init__(self, root):
         self.root = root
@@ -25,6 +32,8 @@ class SimpleProteinPlotter:
         self.root.geometry("450x600")
         
         self.files = []
+        self.cached_data = None
+        self.cached_file_list = []
         self.setup_ui()
 
     def setup_ui(self):
@@ -94,6 +103,8 @@ class SimpleProteinPlotter:
         self.file_listbox.delete(0, tk.END)
         self.file_dropdown['values'] = []
         self.selected_file.set('')
+        self.cached_data = None
+        self.cached_file_list = []
     
     def update_file_dropdown(self):
         """Update the file dropdown with current files."""
@@ -108,25 +119,20 @@ class SimpleProteinPlotter:
             return 'Unknown'
         
         protein_name = str(protein_name).upper()
-        
-        # Human/HeLa proteins
-        if any(x in protein_name for x in ['_HUMAN', 'HOMO_SAPIENS']):
-            return 'HeLa'
-        # E. coli proteins
-        elif any(x in protein_name for x in ['_ECOLI', '_ECOL', '_ECO2', '_ECO5', '_ECO7', 
-                                               '_SHIF', '_SHIB', '_SHIS', 'ESCHERICHIA']):
-            return 'E.coli'
-        # Yeast proteins
-        elif any(x in protein_name for x in ['_YEAST', 'SACCHAROMYCES', 'CEREVISIAE']):
-            return 'Yeast'
-        else:
-            return 'Unknown'
+        for organism, patterns in self.ORGANISM_PATTERNS.items():
+            if any(pattern in protein_name for pattern in patterns):
+                return organism
+        return 'Unknown'
     
     def load_data(self):
-        """Load data from selected files."""
+        """Load data from selected files with caching."""
         if not self.files:
             messagebox.showerror("Error", "Please add at least one TSV file")
             return None
+        
+        # Return cached data if file list unchanged
+        if self.cached_data is not None and self.cached_file_list == self.files:
+            return self.cached_data
         
         all_data = []
         self.file_to_raw_column = {}
@@ -144,10 +150,8 @@ class SimpleProteinPlotter:
                 
                 # Identify organism from protein name column
                 protein_col = next((col for col in ['Protein.Names', 'Protein.Group'] 
-                                   if col in df.columns), None)
-                if not protein_col:
-                    protein_cols = [col for col in df.columns if 'protein' in col.lower()]
-                    protein_col = protein_cols[0] if protein_cols else None
+                                   if col in df.columns), None) or \
+                              next((col for col in df.columns if 'protein' in col.lower()), None)
                 
                 df['Organism'] = df[protein_col].apply(self.identify_organism) if protein_col else 'Unknown'
                 all_data.append(df)
@@ -156,7 +160,10 @@ class SimpleProteinPlotter:
                 messagebox.showerror("Error", f"Failed to load {Path(filepath).name}:\n{e}")
                 return None
         
-        return pd.concat(all_data, ignore_index=True)
+        # Cache the result
+        self.cached_data = pd.concat(all_data, ignore_index=True)
+        self.cached_file_list = self.files.copy()
+        return self.cached_data
 
     def _create_bar_chart(self, data, ax):
         """Helper: Create stacked bar chart."""
@@ -177,24 +184,20 @@ class SimpleProteinPlotter:
     def _create_box_plot(self, data, selected, ax):
         """Helper: Create box plot for selected file."""
         file_data = data[data['Source_File'] == selected]
-        if file_data.empty:
-            messagebox.showerror("Error", f"No data found for {selected}")
-            return False
-        
-        if selected not in self.file_to_raw_column:
-            messagebox.showerror("Error", f"Could not find intensity column for {selected}")
+        if file_data.empty or selected not in self.file_to_raw_column:
+            messagebox.showerror("Error", f"No data or intensity column found for {selected}")
             return False
         
         intensity_col = self.file_to_raw_column[selected]
         if intensity_col not in file_data.columns:
-            messagebox.showerror("Error", f"Column {intensity_col} not found in filtered data")
+            messagebox.showerror("Error", f"Column {intensity_col} not found")
             return False
         
         plot_data, labels, plot_colors = [], [], []
         for organism in self.ORGANISMS:
             org_data = pd.to_numeric(file_data[file_data['Organism'] == organism][intensity_col], errors='coerce')
-            org_data = org_data[org_data > 0]
-            if len(org_data) > 0:
+            org_data = org_data[org_data > 0].dropna()
+            if not org_data.empty:
                 plot_data.append(np.log10(org_data))
                 labels.append(organism)
                 plot_colors.append(self.COLORS[organism])
