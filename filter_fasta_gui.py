@@ -21,10 +21,43 @@ Example:
 """
 
 import re
+import hashlib
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from typing import Optional
+from typing import Optional, Iterator
+
+
+def iterate_fasta_entries(file_path: Path) -> Iterator[tuple[str, list[str]]]:
+    """
+    Yield (header, sequence_lines) tuples from a FASTA file.
+    
+    Parameters
+    ----------
+    file_path : Path
+        Path to the FASTA file.
+        
+    Yields
+    ------
+    tuple[str, list[str]]
+        A tuple of (header_line, list_of_sequence_lines).
+        The header includes the leading '>'.
+    """
+    with file_path.open('r', encoding='utf-8', errors='replace') as f:
+        header = None
+        seq_lines = []
+        for line in f:
+            line = line.rstrip('\n')
+            if line.startswith('>'):
+                if header is not None:
+                    yield header, seq_lines
+                header = line
+                seq_lines = []
+            elif header is not None:
+                seq_lines.append(line)
+        if header is not None:
+            yield header, seq_lines
+
 
 def filter_fasta(
     input_path: Path,
@@ -78,39 +111,17 @@ def filter_fasta(
     removed = 0
     removed_headers = []
 
-    with input_path.open('r', encoding='utf-8', errors='replace') as fin, \
-         output_path.open('w', encoding='utf-8') as fout:
-        current_entry = []  # list[str] of original lines
-
-        def flush_entry():
-            nonlocal kept, removed
-            if not current_entry:
-                return
-            header_line = current_entry[0].rstrip('\n')
-            header_text = header_line[1:]  # drop leading '>'
+    with output_path.open('w', encoding='utf-8') as fout:
+        for header, seq_lines in iterate_fasta_entries(input_path):
+            header_text = header[1:]  # drop leading '>'
             if matches(header_text):
                 removed += 1
-                removed_headers.append(header_line)
+                removed_headers.append(header)
             else:
                 kept += 1
-                # Write back exactly as read
-                for line in current_entry:
-                    fout.write(line if line.endswith('\n') else line + '\n')
-
-        for line in fin:
-            if line.startswith('>'):
-                # New header -> flush previous entry
-                flush_entry()
-                current_entry = [line.rstrip('\n')]
-            else:
-                if current_entry:
-                    current_entry.append(line.rstrip('\n'))
-                else:
-                    # Handle files that start with sequence without header (non-standard)
-                    # We'll skip such lines but you could also choose to pass them through.
-                    continue
-        # Flush last entry
-        flush_entry()
+                fout.write(header + '\n')
+                for seq_line in seq_lines:
+                    fout.write(seq_line + '\n')
 
     if save_report_path is not None:
         with save_report_path.open('w', encoding='utf-8') as rep:
@@ -159,7 +170,7 @@ def merge_fasta_files(
         raise ValueError("Please provide at least one input file.")
 
     seen_headers = set()
-    seen_sequences = set()
+    seen_sequence_hashes = set()  # Store hashes instead of full sequences
     total_entries = 0
     written_entries = 0
     skipped_duplicates = 0
@@ -176,68 +187,44 @@ def merge_fasta_files(
             # Get a short prefix from filename (without extension)
             prefix = f"[{input_path.stem}]" if add_prefix else ""
             
-            with input_path.open('r', encoding='utf-8', errors='replace') as fin:
-                current_header = None
-                current_sequence_lines = []
+            for header, seq_lines in iterate_fasta_entries(input_path):
+                file_total += 1
+                total_entries += 1
                 
-                def flush_entry():
-                    nonlocal written_entries, skipped_duplicates, file_written
-                    if current_header is None:
-                        return
-                    
-                    # Check for duplicates
-                    should_write = True
-                    
-                    if deduplicate == "header":
-                        # Extract the actual header text (without '>')
-                        header_text = current_header.lstrip('>')
-                        if header_text in seen_headers:
-                            should_write = False
-                            skipped_duplicates += 1
-                        else:
-                            seen_headers.add(header_text)
-                    
-                    elif deduplicate == "sequence":
-                        # Combine all sequence lines into one string
-                        seq = ''.join(current_sequence_lines)
-                        if seq in seen_sequences:
-                            should_write = False
-                            skipped_duplicates += 1
-                        else:
-                            seen_sequences.add(seq)
-                    
-                    if should_write:
-                        # Write header with optional prefix
-                        if prefix and not current_header.startswith('>'):
-                            fout.write(f">{prefix}{current_header}\n")
-                        elif prefix:
-                            fout.write(f">{prefix}{current_header.lstrip('>')}\n")
-                        else:
-                            fout.write(f"{current_header}\n")
-                        
-                        # Write sequence lines
-                        for seq_line in current_sequence_lines:
-                            fout.write(f"{seq_line}\n")
-                        
-                        written_entries += 1
-                        file_written += 1
+                # Check for duplicates
+                should_write = True
                 
-                for line in fin:
-                    line = line.rstrip('\n')
-                    if line.startswith('>'):
-                        # Flush previous entry
-                        flush_entry()
-                        # Start new entry
-                        current_header = line
-                        current_sequence_lines = []
-                        file_total += 1
-                        total_entries += 1
+                if deduplicate == "header":
+                    header_text = header.lstrip('>')
+                    if header_text in seen_headers:
+                        should_write = False
+                        skipped_duplicates += 1
                     else:
-                        if current_header is not None:
-                            current_sequence_lines.append(line)
+                        seen_headers.add(header_text)
                 
-                # Flush last entry from this file
-                flush_entry()
+                elif deduplicate == "sequence":
+                    # Use hash for memory-efficient deduplication
+                    seq = ''.join(seq_lines)
+                    seq_hash = hashlib.md5(seq.encode(), usedforsecurity=False).hexdigest()
+                    if seq_hash in seen_sequence_hashes:
+                        should_write = False
+                        skipped_duplicates += 1
+                    else:
+                        seen_sequence_hashes.add(seq_hash)
+                
+                if should_write:
+                    # Write header with optional prefix
+                    if prefix:
+                        fout.write(f">{prefix}{header.lstrip('>')}\n")
+                    else:
+                        fout.write(f"{header}\n")
+                    
+                    # Write sequence lines
+                    for seq_line in seq_lines:
+                        fout.write(f"{seq_line}\n")
+                    
+                    written_entries += 1
+                    file_written += 1
             
             file_stats[input_path.name] = (file_total, file_written)
     
