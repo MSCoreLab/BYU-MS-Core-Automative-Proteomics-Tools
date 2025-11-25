@@ -113,16 +113,16 @@ class SimpleProteinPlotter:
         if file_names and not self.selected_file.get():
             self.selected_file.set(file_names[0])
 
-    def identify_organism(self, protein_name):
-        """Identify organism from protein name."""
-        if pd.isna(protein_name):
-            return 'Unknown'
+    def identify_organism_vectorized(self, series):
+        """Vectorized organism identification - much faster than row-by-row apply."""
+        upper = series.fillna('').astype(str).str.upper()
+        result = pd.Series('Unknown', index=series.index)
         
-        protein_name = str(protein_name).upper()
         for organism, patterns in self.ORGANISM_PATTERNS.items():
-            if any(pattern in protein_name for pattern in patterns):
-                return organism
-        return 'Unknown'
+            mask = upper.str.contains('|'.join(patterns), regex=True)
+            result = result.where(~mask, organism)
+        
+        return pd.Categorical(result, categories=self.ORGANISMS + ['Unknown'])
     
     def load_data(self):
         """Load data from selected files with caching."""
@@ -153,7 +153,7 @@ class SimpleProteinPlotter:
                                    if col in df.columns), None) or \
                               next((col for col in df.columns if 'protein' in col.lower()), None)
                 
-                df['Organism'] = df[protein_col].apply(self.identify_organism) if protein_col else 'Unknown'
+                df['Organism'] = self.identify_organism_vectorized(df[protein_col]) if protein_col else 'Unknown'
                 all_data.append(df)
                 
             except Exception as e:
@@ -263,13 +263,15 @@ class SimpleProteinPlotter:
             return
         
         fig1, ax1 = plt.subplots(figsize=(12, 7))
-        fig2, ax2 = plt.subplots(figsize=(10, 7))
-        
         self._create_bar_chart(data, ax1)
         fig1.tight_layout()
         
+        fig2, ax2 = plt.subplots(figsize=(10, 7))
         if self._create_box_plot(data, self.selected_file.get(), ax2):
             fig2.tight_layout()
+            plt.show()
+        else:
+            plt.close(fig2)
             plt.show()
 
 
