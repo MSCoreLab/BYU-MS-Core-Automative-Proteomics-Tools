@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple Protein Data Plotter
+MS Protein & Peptide Data Plotter
 Quick visualization of protein IDs and relative abundances from TSV files
 """
 
@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 
 
-class SimpleProteinPlotter:
+class MSPPDataPlotter:
     """Simple GUI for plotting protein data."""
     
     # Class-level constants
@@ -28,7 +28,7 @@ class SimpleProteinPlotter:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Simple Protein Plotter")
+        self.root.title("MSPP Data Plotter")
         self.root.geometry("450x600")
         
         self.files = []
@@ -44,7 +44,7 @@ class SimpleProteinPlotter:
         self.root.rowconfigure(0, weight=1)
         
         # Title
-        ttk.Label(main_frame, text="Protein Data Plotter", 
+        ttk.Label(main_frame, text="MS Protein & Peptide Data Plotter", 
                  font=('Arial', 16, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 20))
         
         # File selection
@@ -278,7 +278,7 @@ class SimpleProteinPlotter:
 def main():
     """Launch the application."""
     root = tk.Tk()
-    SimpleProteinPlotter(root)
+    MSPPDataPlotter(root)
     root.mainloop()
 
 
