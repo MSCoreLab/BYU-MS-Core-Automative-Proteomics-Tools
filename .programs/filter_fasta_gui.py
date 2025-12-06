@@ -248,11 +248,24 @@ def merge_fasta_files(
 
 
 class App(tk.Tk):
+    # Class constants
+    FASTA_FILETYPES = [("FASTA files", "*.fasta *.fa *.faa *.fna *.fas *.fsa"), ("All files", "*.*")]
+    PADDING = {"padx": 10, "pady": 8}
+    
+    # Dark mode colors
+    DARK_BG = '#1e1e1e'
+    DARK_FG = '#e0e0e0'
+    DARK_ACCENT = '#3c3c3c'
+    DARK_HIGHLIGHT = '#007acc'
+    
     def __init__(self):
         super().__init__()
         self.title("FASTA File Processor")
         self.geometry("800x500")
         self.minsize(700, 450)
+        
+        # Apply dark mode theme
+        self._setup_dark_theme()
 
         # Create notebook for tabs
         self.notebook = ttk.Notebook(self)
@@ -284,42 +297,72 @@ class App(tk.Tk):
         self._build_filter_ui()
         self._build_merge_ui()
 
-    def _build_filter_ui(self):
-        pad = {"padx": 10, "pady": 8}
+    def _setup_dark_theme(self):
+        """Configure dark mode styling for ttk widgets."""
+        self.root = self
+        self.root.configure(bg=self.DARK_BG)
+        
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Configure dark colors for all ttk widgets
+        style.configure('.', background=self.DARK_BG, foreground=self.DARK_FG)
+        style.configure('TFrame', background=self.DARK_BG)
+        style.configure('TLabel', background=self.DARK_BG, foreground=self.DARK_FG)
+        style.configure('TButton', background=self.DARK_ACCENT, foreground=self.DARK_FG,
+                        borderwidth=1, focuscolor=self.DARK_HIGHLIGHT)
+        style.map('TButton', background=[('active', self.DARK_HIGHLIGHT)])
+        style.configure('TNotebook', background=self.DARK_BG, borderwidth=0)
+        style.configure('TNotebook.Tab', background=self.DARK_ACCENT, foreground=self.DARK_FG,
+                       padding=[10, 5])
+        style.map('TNotebook.Tab', background=[('selected', self.DARK_HIGHLIGHT)],
+                 foreground=[('selected', 'white')])
+        style.configure('TCheckbutton', background=self.DARK_BG, foreground=self.DARK_FG)
+        style.configure('TRadiobutton', background=self.DARK_BG, foreground=self.DARK_FG)
 
+    def _build_filter_ui(self):
         frm = ttk.Frame(self.filter_frame)
-        frm.pack(fill="both", expand=True, **pad)
+        frm.pack(fill="both", expand=True, **self.PADDING)
 
         # Row 1: Input
         row1 = ttk.Frame(frm)
-        row1.pack(fill="x", **pad)
+        row1.pack(fill="x", **self.PADDING)
         ttk.Label(row1, text="Input FASTA:").pack(side="left")
-        ttk.Entry(row1, textvariable=self.input_var).pack(side="left", fill="x", expand=True, padx=6)
+        input_entry = tk.Entry(row1, textvariable=self.input_var,
+                               bg=self.DARK_ACCENT, fg=self.DARK_FG,
+                               insertbackground=self.DARK_FG)
+        input_entry.pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(row1, text="Browse…", command=self.choose_input).pack(side="left")
 
         # Row 2: Output
         row2 = ttk.Frame(frm)
-        row2.pack(fill="x", **pad)
+        row2.pack(fill="x", **self.PADDING)
         ttk.Label(row2, text="Output FASTA:").pack(side="left")
-        ttk.Entry(row2, textvariable=self.output_var).pack(side="left", fill="x", expand=True, padx=6)
+        output_entry = tk.Entry(row2, textvariable=self.output_var,
+                                bg=self.DARK_ACCENT, fg=self.DARK_FG,
+                                insertbackground=self.DARK_FG)
+        output_entry.pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(row2, text="Browse…", command=self.choose_output).pack(side="left")
 
         # Row 3: Patterns
         row3 = ttk.Frame(frm)
-        row3.pack(fill="x", **pad)
+        row3.pack(fill="x", **self.PADDING)
         ttk.Label(row3, text="Patterns (comma-separated):").pack(side="left")
-        ttk.Entry(row3, textvariable=self.patterns_var).pack(side="left", fill="x", expand=True, padx=6)
+        pattern_entry = tk.Entry(row3, textvariable=self.patterns_var,
+                                 bg=self.DARK_ACCENT, fg=self.DARK_FG,
+                                 insertbackground=self.DARK_FG)
+        pattern_entry.pack(side="left", fill="x", expand=True, padx=6)
 
         # Row 4: Options
         row4 = ttk.Frame(frm)
-        row4.pack(fill="x", **pad)
+        row4.pack(fill="x", **self.PADDING)
         ttk.Checkbutton(row4, text="Use regular expressions", variable=self.regex_var).pack(side="left")
         ttk.Checkbutton(row4, text="Case sensitive", variable=self.case_var).pack(side="left")
         ttk.Checkbutton(row4, text="Save removal report (.txt)", variable=self.report_var).pack(side="left")
 
         # Row 5: Actions
         row5 = ttk.Frame(frm)
-        row5.pack(fill="x", **pad)
+        row5.pack(fill="x", **self.PADDING)
         ttk.Button(row5, text="Run Filter", command=self.run_filter).pack(side="left")
 
         # Help text
@@ -330,18 +373,16 @@ class App(tk.Tk):
             "• Only headers starting with '>' are checked; sequences are preserved as-is for kept entries.\n"
         )
         row6 = ttk.Frame(frm)
-        row6.pack(fill="both", expand=True, **pad)
+        row6.pack(fill="both", expand=True, **self.PADDING)
         ttk.Label(row6, text=help_txt, justify="left").pack(anchor="w")
 
     def _build_merge_ui(self):
-        pad = {"padx": 10, "pady": 8}
-
         frm = ttk.Frame(self.merge_frame)
-        frm.pack(fill="both", expand=True, **pad)
+        frm.pack(fill="both", expand=True, **self.PADDING)
 
         # Row 1: File list with scrollbar
         row1 = ttk.Frame(frm)
-        row1.pack(fill="both", expand=True, **pad)
+        row1.pack(fill="both", expand=True, **self.PADDING)
         ttk.Label(row1, text="Input FASTA files to merge:").pack(anchor="w")
         
         list_frame = ttk.Frame(row1)
@@ -350,7 +391,11 @@ class App(tk.Tk):
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side="right", fill="y")
         
-        self.merge_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, height=6)
+        self.merge_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, height=6,
+                                         bg=self.DARK_ACCENT, fg=self.DARK_FG,
+                                         selectbackground=self.DARK_HIGHLIGHT,
+                                         selectforeground='white', borderwidth=0,
+                                         highlightthickness=1, highlightcolor=self.DARK_HIGHLIGHT)
         self.merge_listbox.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.merge_listbox.yview)
         
@@ -363,14 +408,17 @@ class App(tk.Tk):
 
         # Row 2: Output
         row2 = ttk.Frame(frm)
-        row2.pack(fill="x", **pad)
+        row2.pack(fill="x", **self.PADDING)
         ttk.Label(row2, text="Output merged FASTA:").pack(side="left")
-        ttk.Entry(row2, textvariable=self.merge_output_var).pack(side="left", fill="x", expand=True, padx=6)
+        merge_output_entry = tk.Entry(row2, textvariable=self.merge_output_var,
+                                      bg=self.DARK_ACCENT, fg=self.DARK_FG,
+                                      insertbackground=self.DARK_FG)
+        merge_output_entry.pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(row2, text="Browse…", command=self.choose_merge_output).pack(side="left")
 
         # Row 3: Options
         row3 = ttk.Frame(frm)
-        row3.pack(fill="x", **pad)
+        row3.pack(fill="x", **self.PADDING)
         
         ttk.Label(row3, text="Deduplication:").pack(side="left", padx=(0, 6))
         ttk.Radiobutton(row3, text="None", variable=self.dedupe_var, value="none").pack(side="left")
@@ -379,13 +427,13 @@ class App(tk.Tk):
 
         # Row 4: More options
         row4 = ttk.Frame(frm)
-        row4.pack(fill="x", **pad)
+        row4.pack(fill="x", **self.PADDING)
         ttk.Checkbutton(row4, text="Add file prefix to headers", variable=self.prefix_var).pack(side="left")
         ttk.Checkbutton(row4, text="Save merge report (.txt)", variable=self.merge_report_var).pack(side="left")
 
         # Row 5: Actions
         row5 = ttk.Frame(frm)
-        row5.pack(fill="x", **pad)
+        row5.pack(fill="x", **self.PADDING)
         ttk.Button(row5, text="Run Merge", command=self.run_merge).pack(side="left")
 
         # Help text
@@ -397,13 +445,13 @@ class App(tk.Tk):
             "• File prefix adds source filename to each header (e.g., >[file1]original_header).\n"
         )
         row6 = ttk.Frame(frm)
-        row6.pack(fill="x", **pad)
+        row6.pack(fill="x", **self.PADDING)
         ttk.Label(row6, text=help_txt, justify="left").pack(anchor="w")
 
     def choose_input(self):
         path = filedialog.askopenfilename(
             title="Choose FASTA file",
-            filetypes=[("FASTA files", "*.fasta *.fa *.faa *.fna *.fas *.fsa"), ("All files", "*.*")],
+            filetypes=self.FASTA_FILETYPES,
         )
         if path:
             self.input_var.set(path)
@@ -417,7 +465,7 @@ class App(tk.Tk):
         path = filedialog.asksaveasfilename(
             title="Save filtered FASTA as…",
             defaultextension=".fasta",
-            filetypes=[("FASTA files", "*.fasta *.fa *.faa *.fna *.fas *.fsa"), ("All files", "*.*")],
+            filetypes=self.FASTA_FILETYPES,
         )
         if path:
             self.output_var.set(path)
@@ -425,7 +473,7 @@ class App(tk.Tk):
     def add_merge_files(self):
         paths = filedialog.askopenfilenames(
             title="Choose FASTA files to merge",
-            filetypes=[("FASTA files", "*.fasta *.fa *.faa *.fna *.fas *.fsa"), ("All files", "*.*")],
+            filetypes=self.FASTA_FILETYPES,
         )
         if paths:
             for path in paths:
@@ -455,27 +503,31 @@ class App(tk.Tk):
         path = filedialog.asksaveasfilename(
             title="Save merged FASTA as…",
             defaultextension=".fasta",
-            filetypes=[("FASTA files", "*.fasta *.fa *.faa *.fna *.fas *.fsa"), ("All files", "*.*")],
+            filetypes=self.FASTA_FILETYPES,
         )
         if path:
             self.merge_output_var.set(path)
+
+    def _parse_patterns(self, patterns_str: str) -> list[str]:
+        """Parse comma-separated patterns and validate."""
+        patterns = [p.strip() for p in patterns_str.split(",") if p.strip()]
+        if not patterns:
+            raise ValueError("Please enter at least one pattern.")
+        return patterns
 
     def run_filter(self):
         try:
             input_path = Path(self.input_var.get()).expanduser()
             output_path = Path(self.output_var.get()).expanduser()
-            patterns_raw = self.patterns_var.get().strip()
+            
             if not input_path or not input_path.exists():
                 messagebox.showerror("Error", "Please choose a valid input FASTA file.")
                 return
             if not output_path:
                 messagebox.showerror("Error", "Please choose an output FASTA file path.")
                 return
-            if not patterns_raw:
-                messagebox.showerror("Error", "Please enter at least one pattern.")
-                return
 
-            patterns = [p.strip() for p in patterns_raw.split(",") if p.strip()]
+            patterns = self._parse_patterns(self.patterns_var.get().strip())
             report_path = None
             if self.report_var.get():
                 report_path = output_path.with_suffix(output_path.suffix + ".removed.txt")
