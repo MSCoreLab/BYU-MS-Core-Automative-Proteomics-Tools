@@ -70,7 +70,7 @@ class MSPPDataPlotter:
     def setup_ui(self):
         """Setup the user interface."""
         main_frame = ttk.Frame(self.root, padding="20")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky='nsew')
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         
@@ -86,7 +86,7 @@ class MSPPDataPlotter:
                                         selectbackground=self.DARK_HIGHLIGHT,
                                         selectforeground='white', borderwidth=0,
                                         highlightthickness=1, highlightcolor=self.DARK_HIGHLIGHT)
-        self.file_listbox.grid(row=2, column=0, columnspan=2, pady=5, sticky=(tk.W, tk.E))
+        self.file_listbox.grid(row=2, column=0, columnspan=2, pady=5, sticky='ew')
         
         # Buttons
         btn_frame = ttk.Frame(main_frame)
@@ -97,7 +97,7 @@ class MSPPDataPlotter:
         
         # Plot buttons
         plot_frame = ttk.LabelFrame(main_frame, text="Generate Plots", padding="10")
-        plot_frame.grid(row=4, column=0, columnspan=2, pady=20, sticky=(tk.W, tk.E))
+        plot_frame.grid(row=4, column=0, columnspan=2, pady=20, sticky='ew')
         
         ttk.Button(plot_frame, text="📊 Protein ID Bar Chart", 
                   command=self.plot_protein_ids, width=35).pack(pady=5, fill=tk.X, padx=10)
@@ -110,7 +110,7 @@ class MSPPDataPlotter:
         
         # Grouping options
         group_frame = ttk.LabelFrame(main_frame, text="Group Files by Pattern", padding="10")
-        group_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+        group_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky='ew')
         
         ttk.Label(group_frame, text="Group pattern (regex):").pack(anchor=tk.W)
         self.group_pattern = tk.StringVar(value="")
@@ -154,13 +154,13 @@ class MSPPDataPlotter:
         
         return pd.Categorical(result, categories=self.ORGANISMS + ['Unknown'])
 
-    def _get_organism_data(self, file_data, intensity_col, organism):
+    def _get_organism_data(self, file_data, intensity_col, organism) -> pd.Series:
         """Extract positive numeric intensity data for an organism."""
-        data = pd.to_numeric(
+        data: pd.Series = pd.to_numeric(
             file_data[file_data['Organism'] == organism][intensity_col],
             errors='coerce'
-        )
-        return data[data > 0].dropna()
+        )  # type: ignore[assignment]
+        return data[data > 0].dropna()  # type: ignore[return-value]
 
     def _calculate_protein_fold_changes(self, file_data, intensity_col):
         """Calculate per-protein log2 fold changes (E.coli/Yeast) for a single file."""
