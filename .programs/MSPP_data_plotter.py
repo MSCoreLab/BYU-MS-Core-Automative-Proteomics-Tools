@@ -113,13 +113,13 @@ class MSPPDataPlotter:
         group_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky='ew')
         
         ttk.Label(group_frame, text="Group pattern (regex):").pack(anchor=tk.W)
-        self.group_pattern = tk.StringVar(value="")
+        self.group_pattern = tk.StringVar(value="(E\\d+)")
         pattern_entry = tk.Entry(group_frame, textvariable=self.group_pattern, width=40,
                                  bg=self.DARK_ACCENT, fg=self.DARK_FG,
                                  insertbackground=self.DARK_FG)
         pattern_entry.pack(fill=tk.X, pady=5)
         
-        ttk.Label(group_frame, text="Examples: '(\\d+ng_\\d+ng)' or '(rep\\d+)' or '(ratio_[^_]+)'",
+        ttk.Label(group_frame, text="Default: '(E\\d+)' groups by E.coli ratio (E25, E100, etc.)",
                  font=('Arial', 8)).pack(anchor=tk.W)
         
         ttk.Button(group_frame, text="📦 Grouped Fold Change Box Plot", 
@@ -242,9 +242,10 @@ class MSPPDataPlotter:
         ax.set_xlabel('Sample', fontsize=12, fontweight='bold')
         ax.set_ylabel('Number of Protein IDs', fontsize=12, fontweight='bold')
         ax.set_title('Protein ID Counts by Organism', fontsize=14, fontweight='bold')
-        ax.legend(title='Organism', fontsize=10)
+        ax.legend(title='Organism', fontsize=10, loc='upper right')
         ax.grid(axis='y', alpha=0.3)
-        ax.tick_params(axis='x', rotation=45)
+        ax.tick_params(axis='x', rotation=45, labelbottom=True)
+        plt.setp(ax.xaxis.get_majorticklabels(), ha='right')
     
     def _calculate_fold_changes_per_sample(self, data):
         """Calculate per-protein log2 abundance ratios (E.coli/Yeast) for box plot display."""
@@ -304,16 +305,14 @@ class MSPPDataPlotter:
         # Add median annotations
         for i, (med, count) in enumerate(zip(sorted_medians, sorted_counts)):
             ax.text(i + 1.35, med, f'{med:.2f}', fontsize=8, va='center', color='#f39c12')
-            ax.text(i + 1, ax.get_ylim()[1] if ax.get_ylim()[1] > 0 else max([max(fc) for fc in sorted_fcs]) + 0.5, 
-                   f'{count} proteins', fontsize=7, ha='center', va='bottom', color='white', rotation=90)
         
         # Labels and formatting
         ax.set_ylabel('Log2 Abundance Ratio (E.coli / Yeast median)', fontsize=12, fontweight='bold')
         ax.set_xlabel('Sample', fontsize=12, fontweight='bold')
-        ax.set_title('Per-Protein Abundance Ratios (HeLa-Normalized)', fontsize=14, fontweight='bold')
+        ax.set_title('Protein Fold Change (HeLa-Normalized)', fontsize=14, fontweight='bold')
         ax.set_xticks(positions)
         ax.set_xticklabels([s.replace('report.pg_matrix_', '') for s in sorted_names], 
-                          rotation=90, fontsize=7)
+                          rotation=45, ha='right', fontsize=9)
         ax.grid(axis='y', alpha=0.3)
         
         # Legend
