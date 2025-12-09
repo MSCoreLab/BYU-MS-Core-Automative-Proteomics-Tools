@@ -141,7 +141,7 @@ class MSPPDataProcessor:
         """Generate protein ID counts bar chart."""
         fig, ax = plt.subplots(figsize=(12, 7))
         
-        counts = data.groupby(['Source_File', 'Organism']).size().unstack(fill_value=0)
+        counts = data.groupby(['Source_File', 'Organism'], observed=True).size().unstack(fill_value=0)
         org_order = self.ORGANISMS + ['Unknown']
         counts = counts.reindex(columns=[col for col in org_order if col in counts.columns], fill_value=0)
         plot_colors = [self.COLORS[col] for col in counts.columns]
