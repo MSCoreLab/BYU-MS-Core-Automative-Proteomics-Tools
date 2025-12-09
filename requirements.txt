@@ -1,14 +1,12 @@
+# This file is for convenience. For development, use: pip install -e ".[dev]"
+# This matches dependencies in pyproject.toml
+
 # Core data science packages
 numpy>=2.0.0
 pandas>=2.0.0
 matplotlib>=3.8.0
 seaborn>=0.13.0
 
-# Web application (React + Flask frontend)
+# Web application (Flask backend)
 flask>=3.0.0
 flask-cors>=4.0.0
-
-# Jupyter/IPython support
-ipython>=9.0.0
-ipykernel>=7.0.0
-jupyter_client>=8.0.0

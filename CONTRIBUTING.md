@@ -46,14 +46,53 @@ Thank you for your interest in contributing to our mass spectrometry analysis to
 ### Code Style
 
 - **Python**: Follow PEP 8 guidelines
-  - Use Black for code formatting: `black .`
-  - Use Ruff for linting: `ruff check .`
+  - Use Ruff for formatting and linting: `ruff format .` and `ruff check --fix .`
   - Line length: 100 characters
   
 - **TypeScript/React**: 
   - Follow TypeScript best practices
   - Use functional components with hooks
   - Keep components modular and reusable
+
+### Common Commands
+
+**Daily Development:**
+```powershell
+# Activate environment
+.\.venv\Scripts\Activate.ps1
+
+# Run web app
+python programs/mspp_web/launch_app.py
+
+# Run desktop app
+python programs/pyscripts/MSPP_data_plotter.py
+
+# Deactivate when done
+deactivate
+```
+
+**Frontend Development (Web App):**
+```powershell
+cd programs/mspp_web/frontend
+
+# Development mode (hot reload)
+npm run dev
+
+# Production build
+npm run build
+```
+
+**Code Quality:**
+```powershell
+# Format code with Ruff
+ruff format programs/
+
+# Lint and auto-fix issues
+ruff check --fix programs/
+
+# Run tests
+pytest tests/
+```
 
 ### Docstrings
 

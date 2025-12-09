@@ -29,8 +29,10 @@ This repository contains workflows and tools for bottom-up proteomics analysis, 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install dependencies (choose one):
+pip install -r requirements.txt           # Production only
+pip install -e ".[dev]"                   # With dev tools (Ruff, pytest)
+pip install -e ".[dev,jupyter]"           # With Jupyter support
 
 # 3. (Optional) Install web app frontend
 cd programs/mspp_web/frontend
