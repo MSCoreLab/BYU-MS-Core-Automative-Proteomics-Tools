@@ -105,7 +105,10 @@ class MSPPDataPlotter:
         ttk.Button(plot_frame, text="📊 E.coli vs Yeast Fold Change", 
                   command=self.plot_fold_change, width=35).pack(pady=5, fill=tk.X, padx=10)
         
-        ttk.Button(plot_frame, text="📈 Both Plots", 
+        ttk.Button(plot_frame, text="📊 Both Organisms vs HeLa", 
+                  command=self.plot_organisms_vs_hela, width=35).pack(pady=5, fill=tk.X, padx=10)
+        
+        ttk.Button(plot_frame, text="📈 All Plots", 
                   command=self.plot_both, width=35).pack(pady=5, fill=tk.X, padx=10)
         
         # Grouping options
@@ -176,6 +179,18 @@ class MSPPDataPlotter:
         yeast_median = (yeast_data / hela_median).median()
         
         protein_fcs = np.log2(ecoli_norm / yeast_median)
+        return protein_fcs.replace([np.inf, -np.inf], np.nan).dropna().values
+    
+    def _calculate_organism_vs_hela(self, file_data, intensity_col, organism):
+        """Calculate per-protein log2 fold changes (Organism/HeLa median) for validation."""
+        hela_data = self._get_organism_data(file_data, intensity_col, 'HeLa')
+        org_data = self._get_organism_data(file_data, intensity_col, organism)
+        
+        if len(hela_data) == 0 or len(org_data) == 0:
+            return None
+        
+        hela_median = hela_data.median()
+        protein_fcs = np.log2(org_data / hela_median)
         return protein_fcs.replace([np.inf, -np.inf], np.nan).dropna().values
 
     def _style_boxplot(self, bp):
@@ -357,22 +372,99 @@ class MSPPDataPlotter:
             plt.show()
 
     def plot_both(self):
-        """Generate both plots simultaneously."""
+        """Generate all three plots simultaneously."""
         data = self.load_data()
         if data is None:
             return
         
+        # Plot 1: Bar chart
         fig1, ax1 = plt.subplots(figsize=(12, 7))
         self._create_bar_chart(data, ax1)
         fig1.tight_layout()
         
+        # Plot 2: E.coli vs Yeast fold change
         fig2, ax2 = plt.subplots(figsize=(12, 7))
-        if self._create_fold_change_plot(data, ax2):
+        success = self._create_fold_change_plot(data, ax2)
+        if success:
             fig2.tight_layout()
-            plt.show()
         else:
             plt.close(fig2)
-            plt.show()
+        
+        # Plot 3: Organisms vs HeLa
+        self.plot_organisms_vs_hela()
+        
+        plt.show()
+    
+    def plot_organisms_vs_hela(self):
+        """Plot E.coli and Yeast proteins vs HeLa median to validate spike-in ratios."""
+        data = self.load_data()
+        if data is None:
+            return
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+        
+        for ax, organism, expected_ratio in [(ax1, 'E.coli', None), (ax2, 'Yeast', None)]:
+            sample_data = []
+            sample_names = []
+            
+            for source_file in data['Source_File'].unique():
+                if source_file not in self.file_to_raw_column:
+                    continue
+                
+                intensity_col = self.file_to_raw_column[source_file]
+                file_data = data[data['Source_File'] == source_file]
+                
+                fcs = self._calculate_organism_vs_hela(file_data, intensity_col, organism)
+                if fcs is not None and len(fcs) > 0:
+                    sample_data.append(fcs)
+                    sample_names.append(source_file)
+            
+            if not sample_data:
+                ax.text(0.5, 0.5, f'No {organism} data found', 
+                       ha='center', va='center', transform=ax.transAxes, fontsize=14)
+                continue
+            
+            # Sort by median
+            sorted_indices = sorted(range(len(sample_data)), 
+                                   key=lambda i: np.median(sample_data[i]), reverse=True)
+            sample_data = [sample_data[i] for i in sorted_indices]
+            sample_names = [sample_names[i] for i in sorted_indices]
+            
+            positions = np.arange(1, len(sample_data) + 1)
+            bp = ax.boxplot(sample_data, positions=positions, widths=0.6,
+                           patch_artist=True, showfliers=True, showmeans=True,
+                           flierprops=dict(marker='o', markerfacecolor='#e74c3c', 
+                                          markersize=3, alpha=0.4, markeredgecolor='none'),
+                           meanprops=dict(marker='s', markerfacecolor='white', 
+                                         markeredgecolor='white', markersize=4))
+            self._style_boxplot(bp)
+            
+            # Add reference line at log2=0 (1:1 ratio)
+            ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9, label='1:1 ratio')
+            
+            # Add median annotations
+            for i, fcs in enumerate(sample_data):
+                med = np.median(fcs)
+                ax.text(i + 1.3, med, f'{med:.2f}', fontsize=8, va='center', color='#f39c12')
+            
+            ax.set_ylabel(f'Log2 Ratio ({organism} / HeLa median)', fontsize=11, fontweight='bold')
+            ax.set_xlabel('Sample', fontsize=11, fontweight='bold')
+            ax.set_title(f'{organism} Protein Abundance vs HeLa', fontsize=13, fontweight='bold')
+            ax.set_xticks(positions)
+            ax.set_xticklabels([s.replace('report.pg_matrix_', '') for s in sample_names], 
+                              rotation=45, ha='right', fontsize=8)
+            ax.grid(axis='y', alpha=0.3)
+            
+            # Stats
+            all_medians = [np.median(fcs) for fcs in sample_data]
+            stats_text = f'n = {len(sample_data)} samples\nMedian range: {min(all_medians):.2f} to {max(all_medians):.2f}'
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=9, 
+                   verticalalignment='top', color='white',
+                   bbox=dict(boxstyle='round', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+        
+        plt.suptitle('Spike-in Validation: Expected Ratios vs Observed', fontsize=15, fontweight='bold', y=0.98)
+        plt.tight_layout()
+        plt.show()
     
     def plot_grouped_fold_change(self):
         """Plot fold changes grouped by filename pattern."""
