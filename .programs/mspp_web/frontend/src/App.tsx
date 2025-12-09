@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Upload, BarChart3, TrendingUp, Activity, X, Loader2 } from 'lucide-react'
+import { Upload, BarChart3, TrendingUp, Activity, X, Loader2, GitBranch } from 'lucide-react'
 import './App.css'
 
 interface PlotResult {
   image: string
   error?: string
+  unmatched_count?: number
+  group_count?: number
 }
 
 function App() {
@@ -13,6 +15,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [plotImage, setPlotImage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [groupPattern, setGroupPattern] = useState<string>(String.raw`(E\d+)`)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -60,7 +63,7 @@ function App() {
     }
   }
 
-  const generatePlot = async (endpoint: string) => {
+  const generatePlot = async (endpoint: string, requestBody?: object) => {
     if (uploadedFiles.length === 0) {
       setError('Please upload files first')
       return
@@ -73,6 +76,8 @@ function App() {
     try {
       const response = await fetch(`/api/plot/${endpoint}`, {
         method: 'POST',
+        headers: requestBody ? { 'Content-Type': 'application/json' } : undefined,
+        body: requestBody ? JSON.stringify(requestBody) : undefined,
       })
 
       const data: PlotResult = await response.json()
@@ -80,6 +85,14 @@ function App() {
       if (!response.ok) throw new Error(data.error || 'Plot generation failed')
 
       setPlotImage(data.image)
+      
+      // Show info about grouped results
+      if (data.group_count !== undefined) {
+        const msg = `Generated plot with ${data.group_count} group(s)`
+        if (data.unmatched_count && data.unmatched_count > 0) {
+          setError(`${msg} (${data.unmatched_count} files did not match pattern)`)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Plot generation failed')
     } finally {
@@ -181,6 +194,32 @@ function App() {
               >
                 <Activity size={20} />
                 Organisms vs HeLa
+              </button>
+            </div>
+
+            <div className="group-pattern-section">
+              <h4>Group Files by Pattern</h4>
+              <div className="pattern-input">
+                <label htmlFor="pattern">Regex Pattern:</label>
+                <input
+                  id="pattern"
+                  type="text"
+                  value={groupPattern}
+                  onChange={(e) => setGroupPattern(e.target.value)}
+                  placeholder="(E\d+)"
+                  className="pattern-field"
+                />
+              </div>
+              <p className="pattern-hint">
+                Default: (E\d+) groups by E25, E100, etc.
+              </p>
+              <button
+                onClick={() => generatePlot('grouped-fold-change', { pattern: groupPattern })}
+                disabled={uploadedFiles.length === 0 || loading || !groupPattern}
+                className="btn btn-plot"
+              >
+                <GitBranch size={20} />
+                Grouped Fold Change
               </button>
             </div>
           </div>

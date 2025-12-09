@@ -262,6 +262,109 @@ class MSPPDataProcessor:
         plt.tight_layout()
         return self._fig_to_base64(fig)
     
+    def generate_grouped_fold_change(self, data, pattern):
+        """Generate grouped fold change plot by regex pattern."""
+        import re
+        
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+        except re.error as e:
+            return {'error': f'Invalid regex pattern: {str(e)}'}
+        
+        # Group files by pattern and calculate fold changes
+        groups = {}
+        unmatched = []
+        
+        for source_file in data['Source_File'].unique():
+            match = regex.search(source_file)
+            if not match or source_file not in self.file_to_raw_column:
+                if not match:
+                    unmatched.append(source_file)
+                continue
+            
+            group_name = match.group(1) if match.lastindex else match.group(0)
+            file_data = data[data['Source_File'] == source_file]
+            intensity_col = self.file_to_raw_column[source_file]
+            
+            fcs = self._calculate_protein_fold_changes(file_data, intensity_col)
+            if fcs is not None and len(fcs) > 0:
+                if group_name not in groups:
+                    groups[group_name] = []
+                groups[group_name].extend(fcs)
+        
+        if not groups:
+            available_files = ', '.join(list(data['Source_File'].unique())[:3])
+            return {'error': f'No files matched pattern \'{pattern}\'. Available files: {available_files}...'}
+        
+        # Sort groups by median fold change
+        sorted_groups = sorted(groups.keys(), key=lambda g: np.median(groups[g]), reverse=True)
+        
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(12, 7))
+        
+        positions = np.arange(1, len(sorted_groups) + 1)
+        box_data = [np.array(groups[g]) for g in sorted_groups]
+        
+        bp = ax.boxplot(box_data, positions=positions, widths=0.6,
+                        patch_artist=True, showfliers=True, showmeans=True,
+                        flierprops=dict(marker='o', markerfacecolor='#3498db', 
+                                       markersize=3, alpha=0.3, markeredgecolor='none'),
+                        meanprops=dict(marker='s', markerfacecolor='white', 
+                                      markeredgecolor='white', markersize=5))
+        
+        # Style boxplot
+        for patch in bp['boxes']:
+            patch.set_facecolor('#5dade2')
+            patch.set_alpha(0.7)
+            patch.set_edgecolor('white')
+        for element in ['whiskers', 'caps']:
+            plt.setp(bp[element], color='white', linewidth=1)
+        plt.setp(bp['medians'], color='#2c3e50', linewidth=2)
+        
+        # Add expected ratio reference line
+        ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
+        
+        # Add median annotations and protein counts
+        y_max = max([max(d) for d in box_data]) if box_data else 1
+        for i, group in enumerate(sorted_groups):
+            med = np.median(groups[group])
+            ax.text(i + 1.3, med, f'{med:.2f}', fontsize=10, va='center', color='#f39c12', fontweight='bold')
+            ax.text(i + 1, y_max + 0.3, f'{len(groups[group])} proteins', 
+                   fontsize=9, ha='center', va='bottom', color='white')
+        
+        # Labels
+        ax.set_ylabel('Log2 Abundance Ratio (E.coli / Yeast)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Group', fontsize=12, fontweight='bold')
+        ax.set_title('Per-Protein Fold Change by Group (HeLa-Normalized)', fontsize=14, fontweight='bold')
+        ax.set_xticks(positions)
+        ax.set_xticklabels(sorted_groups, rotation=45, ha='right', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+        
+        # Legend
+        legend_elements = [
+            Line2D([0], [0], color='#f39c12', linestyle='--', linewidth=2, label='Expected 1:1'),
+            Line2D([0], [0], color='#2c3e50', linewidth=2, label='Median'),
+            Line2D([0], [0], marker='s', color='w', markerfacecolor='white', markersize=6, label='Mean', linestyle='None')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
+        
+        # Stats
+        all_medians = [np.median(groups[g]) for g in sorted_groups]
+        stats_text = f'{len(sorted_groups)} groups\nMedian range: {min(all_medians):.2f} to {max(all_medians):.2f}'
+        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes, fontsize=9, 
+               verticalalignment='bottom', color='white',
+               bbox=dict(boxstyle='round', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        img_base64 = self._fig_to_base64(fig)
+        
+        return {
+            'image': img_base64,
+            'unmatched_count': len(unmatched),
+            'group_count': len(sorted_groups)
+        }
+    
     def _fig_to_base64(self, fig):
         """Convert matplotlib figure to base64 encoded PNG."""
         buf = io.BytesIO()
@@ -324,7 +427,7 @@ def clear_files():
     for filepath in uploaded_files.values():
         try:
             Path(filepath).unlink(missing_ok=True)
-        except:
+        except Exception:
             pass
     uploaded_files.clear()
     return jsonify({'message': 'All files cleared'})
@@ -370,6 +473,27 @@ def generate_organisms_vs_hela():
         data = processor.load_tsv_files(list(uploaded_files.values()))
         img_base64 = processor.generate_organisms_vs_hela(data)
         return jsonify({'image': img_base64})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/plot/grouped-fold-change', methods=['POST'])
+def generate_grouped_fold_change():
+    """Generate grouped fold change plot."""
+    if not uploaded_files:
+        return jsonify({'error': 'No files uploaded'}), 400
+    
+    try:
+        request_data = request.get_json()
+        pattern = request_data.get('pattern', r'(E\d+)')
+        
+        data = processor.load_tsv_files(list(uploaded_files.values()))
+        result = processor.generate_grouped_fold_change(data, pattern)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
