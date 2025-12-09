@@ -38,6 +38,12 @@ class MSPPDataProcessor:
     
     def __init__(self):
         self.file_to_raw_column = {}
+        self._loaded_data = None
+        self._loaded_files = None
+    
+    def _get_cache_key(self, file_paths):
+        """Generate cache key from sorted file paths."""
+        return tuple(sorted(file_paths))
     
     def identify_organism_vectorized(self, series):
         """Vectorized organism identification."""
@@ -51,10 +57,18 @@ class MSPPDataProcessor:
         return pd.Categorical(result, categories=self.ORGANISMS + ['Unknown'])
     
     def load_tsv_files(self, file_paths):
-        """Load and process TSV files."""
+        """Load and process TSV files with caching."""
+        # Check if we can use cached data
+        cache_key = self._get_cache_key(file_paths)
+        if self._loaded_files == cache_key and self._loaded_data is not None:
+            return self._loaded_data
+        
+        # Reset file_to_raw_column mapping for new dataset
+        self.file_to_raw_column = {}
         all_data = []
         
         for filepath in file_paths:
+            # Use low_memory=False and specify dtypes for common columns to speed up parsing
             df = pd.read_csv(filepath, sep='\t', low_memory=False)
             source_name = Path(filepath).stem
             df['Source_File'] = source_name
@@ -75,7 +89,11 @@ class MSPPDataProcessor:
                 df['Organism'] = 'Unknown'
             all_data.append(df)
         
-        return pd.concat(all_data, ignore_index=True)
+        # Cache the result
+        self._loaded_data = pd.concat(all_data, ignore_index=True)
+        self._loaded_files = cache_key
+        
+        return self._loaded_data
     
     def _get_organism_data(self, file_data, intensity_col, organism):
         """Extract positive numeric intensity data for an organism."""
@@ -169,7 +187,6 @@ class MSPPDataProcessor:
         sorted_results = sorted(results, key=lambda x: np.median(x[1]), reverse=True)
         sample_names = [x[0] for x in sorted_results]
         sample_fcs = [x[1] for x in sorted_results]
-        sorted_medians = [np.median(fcs) for fcs in sample_fcs]
         
         # Create box plots
         positions = np.arange(1, len(sample_fcs) + 1)
@@ -180,14 +197,7 @@ class MSPPDataProcessor:
                         meanprops=dict(marker='s', markerfacecolor='white', 
                                       markeredgecolor='white', markersize=4))
         
-        # Style boxplot
-        for patch in bp['boxes']:
-            patch.set_facecolor('#5dade2')
-            patch.set_alpha(0.7)
-            patch.set_edgecolor('white')
-        for element in ['whiskers', 'caps']:
-            plt.setp(bp[element], color='white', linewidth=1)
-        plt.setp(bp['medians'], color='#2c3e50', linewidth=2)
+        self._style_boxplot(bp)
         
         ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
         
@@ -242,12 +252,13 @@ class MSPPDataProcessor:
             
             positions = np.arange(1, len(sample_data) + 1)
             bp = ax.boxplot(sample_data, positions=positions, widths=0.6,
-                           patch_artist=True, showfliers=True, showmeans=True)
+                           patch_artist=True, showfliers=True, showmeans=True,
+                           flierprops=dict(marker='o', markerfacecolor='#e74c3c', 
+                                          markersize=3, alpha=0.4, markeredgecolor='none'),
+                           meanprops=dict(marker='s', markerfacecolor='white', 
+                                         markeredgecolor='white', markersize=4))
             
-            # Style
-            for patch in bp['boxes']:
-                patch.set_facecolor('#5dade2')
-                patch.set_alpha(0.7)
+            self._style_boxplot(bp)
             
             ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
             ax.set_ylabel(f'Log2 Ratio ({organism} / HeLa median)', fontsize=11, fontweight='bold')
@@ -312,14 +323,7 @@ class MSPPDataProcessor:
                         meanprops=dict(marker='s', markerfacecolor='white', 
                                       markeredgecolor='white', markersize=5))
         
-        # Style boxplot
-        for patch in bp['boxes']:
-            patch.set_facecolor('#5dade2')
-            patch.set_alpha(0.7)
-            patch.set_edgecolor('white')
-        for element in ['whiskers', 'caps']:
-            plt.setp(bp[element], color='white', linewidth=1)
-        plt.setp(bp['medians'], color='#2c3e50', linewidth=2)
+        self._style_boxplot(bp)
         
         # Add expected ratio reference line
         ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
@@ -364,6 +368,16 @@ class MSPPDataProcessor:
             'unmatched_count': len(unmatched),
             'group_count': len(sorted_groups)
         }
+    
+    def _style_boxplot(self, bp):
+        """Apply consistent styling to boxplot elements."""
+        for patch in bp['boxes']:
+            patch.set_facecolor('#5dade2')
+            patch.set_alpha(0.7)
+            patch.set_edgecolor('white')
+        for element in ['whiskers', 'caps']:
+            plt.setp(bp[element], color='white', linewidth=1)
+        plt.setp(bp['medians'], color='#2c3e50', linewidth=2)
     
     def _fig_to_base64(self, fig):
         """Convert matplotlib figure to base64 encoded PNG."""
