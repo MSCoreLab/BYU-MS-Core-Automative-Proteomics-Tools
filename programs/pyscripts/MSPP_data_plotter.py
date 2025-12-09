@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MS Protein & Peptide Data Plotter
-Quick visualization of protein IDs and relative abundances from TSV files
+Quick visualization of protein IDs and relative intensitys from TSV files
 """
 
 import tkinter as tk
@@ -348,7 +348,7 @@ class MSPPDataPlotter:
         plt.setp(ax.xaxis.get_majorticklabels(), ha="right")
 
     def _calculate_fold_changes_per_sample(self, data):
-        """Calculate per-protein log2 abundance ratios (E.coli/Yeast) for box plot display."""
+        """Calculate per-protein log2 intensity ratios (E.coli/Yeast) for box plot display."""
         results = []
 
         for source_file in data["Source_File"].unique():
@@ -424,7 +424,7 @@ class MSPPDataPlotter:
 
         # Labels and formatting
         ax.set_ylabel(
-            "Log2 Abundance Ratio (E.coli / Yeast median)", fontsize=12, fontweight="bold"
+            "Log2 Intensity Ratio (E.coli / Yeast median)", fontsize=12, fontweight="bold"
         )
         ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
         ax.set_title("Protein Fold Change (HeLa-Normalized)", fontsize=14, fontweight="bold")
@@ -575,7 +575,7 @@ class MSPPDataPlotter:
         # Labels and formatting
         ax.set_ylabel(f"Log2 Ratio ({organism} / HeLa median)", fontsize=11, fontweight="bold")
         ax.set_xlabel("Sample", fontsize=11, fontweight="bold")
-        ax.set_title(f"{organism} Protein Abundance vs HeLa", fontsize=13, fontweight="bold")
+        ax.set_title(f"{organism} Protein Intensity vs HeLa", fontsize=13, fontweight="bold")
         ax.set_xticks(positions)
         ax.set_xticklabels(
             [s.replace("report.pg_matrix_", "") for s in sample_names],
@@ -731,7 +731,7 @@ class MSPPDataPlotter:
             )
 
         # Labels
-        ax.set_ylabel("Log2 Abundance Ratio (E.coli / Yeast)", fontsize=12, fontweight="bold")
+        ax.set_ylabel("Log2 Intensity Ratio (E.coli / Yeast)", fontsize=12, fontweight="bold")
         ax.set_xlabel("Group", fontsize=12, fontweight="bold")
         ax.set_title(
             "Per-Protein Fold Change by Group (HeLa-Normalized)", fontsize=14, fontweight="bold"
