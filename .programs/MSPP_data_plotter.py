@@ -165,16 +165,20 @@ class MSPPDataPlotter:
         )  # type: ignore[assignment]
         return data[data > 0].dropna()  # type: ignore[return-value]
 
+    def _get_hela_median(self, file_data, intensity_col):
+        """Get HeLa median for normalization, with fallback."""
+        hela_data = self._get_organism_data(file_data, intensity_col, 'HeLa')
+        return hela_data.median() if len(hela_data) > 0 else 1.0
+    
     def _calculate_protein_fold_changes(self, file_data, intensity_col):
         """Calculate per-protein log2 fold changes (E.coli/Yeast) for a single file."""
-        hela_data = self._get_organism_data(file_data, intensity_col, 'HeLa')
         ecoli_data = self._get_organism_data(file_data, intensity_col, 'E.coli')
         yeast_data = self._get_organism_data(file_data, intensity_col, 'Yeast')
         
         if len(ecoli_data) == 0 or len(yeast_data) == 0:
             return None
         
-        hela_median = hela_data.median() if len(hela_data) > 0 else 1.0
+        hela_median = self._get_hela_median(file_data, intensity_col)
         ecoli_norm = ecoli_data / hela_median
         yeast_median = (yeast_data / hela_median).median()
         
@@ -183,13 +187,15 @@ class MSPPDataPlotter:
     
     def _calculate_organism_vs_hela(self, file_data, intensity_col, organism):
         """Calculate per-protein log2 fold changes (Organism/HeLa median) for validation."""
-        hela_data = self._get_organism_data(file_data, intensity_col, 'HeLa')
         org_data = self._get_organism_data(file_data, intensity_col, organism)
         
-        if len(hela_data) == 0 or len(org_data) == 0:
+        if len(org_data) == 0:
             return None
         
-        hela_median = hela_data.median()
+        hela_median = self._get_hela_median(file_data, intensity_col)
+        if hela_median == 1.0:  # No HeLa data found
+            return None
+        
         protein_fcs = np.log2(org_data / hela_median)
         return protein_fcs.replace([np.inf, -np.inf], np.nan).dropna().values
 
@@ -203,6 +209,14 @@ class MSPPDataPlotter:
         for element in ['whiskers', 'caps']:
             plt.setp(bp[element], color='white', linewidth=1)
         plt.setp(bp['medians'], color='#2c3e50', linewidth=2)
+    
+    def _create_fold_change_legend(self):
+        """Create standard legend elements for fold change plots."""
+        return [
+            Line2D([0], [0], color='#f39c12', linestyle='--', linewidth=2, label='Expected 1:1 (log2=0)'),
+            Line2D([0], [0], color='#2c3e50', linewidth=2, label='Median'),
+            Line2D([0], [0], marker='s', color='w', markerfacecolor='white', markersize=6, label='Mean', linestyle='None')
+        ]
 
     def load_data(self):
         """Load data from selected files with caching."""
@@ -331,12 +345,7 @@ class MSPPDataPlotter:
         ax.grid(axis='y', alpha=0.3)
         
         # Legend
-        legend_elements = [
-            Line2D([0], [0], color='#f39c12', linestyle='--', linewidth=2, label='Expected 1:1 (log2=0)'),
-            Line2D([0], [0], color='#2c3e50', linewidth=2, label='Median'),
-            Line2D([0], [0], marker='s', color='w', markerfacecolor='white', markersize=6, label='Mean', linestyle='None')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
+        ax.legend(handles=self._create_fold_change_legend(), loc='upper right', fontsize=9)
         
         # Overall statistics
         overall_mean = np.mean(sorted_medians)
@@ -395,6 +404,64 @@ class MSPPDataPlotter:
         
         plt.show()
     
+    def _plot_single_organism_vs_hela(self, ax, data, organism):
+        """Plot single organism vs HeLa on given axes."""
+        sample_data = []
+        sample_names = []
+        
+        for source_file in data['Source_File'].unique():
+            if source_file not in self.file_to_raw_column:
+                continue
+            
+            intensity_col = self.file_to_raw_column[source_file]
+            file_data = data[data['Source_File'] == source_file]
+            
+            fcs = self._calculate_organism_vs_hela(file_data, intensity_col, organism)
+            if fcs is not None and len(fcs) > 0:
+                sample_data.append(fcs)
+                sample_names.append(source_file)
+        
+        if not sample_data:
+            ax.text(0.5, 0.5, f'No {organism} data found', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            return
+        
+        # Sort by median
+        sorted_pairs = sorted(zip(sample_data, sample_names), 
+                             key=lambda x: np.median(x[0]), reverse=True)
+        sample_data, sample_names = zip(*sorted_pairs)
+        
+        positions = np.arange(1, len(sample_data) + 1)
+        bp = ax.boxplot(sample_data, positions=positions, widths=0.6,
+                       patch_artist=True, showfliers=True, showmeans=True,
+                       flierprops=dict(marker='o', markerfacecolor='#e74c3c', 
+                                      markersize=3, alpha=0.4, markeredgecolor='none'),
+                       meanprops=dict(marker='s', markerfacecolor='white', 
+                                     markeredgecolor='white', markersize=4))
+        self._style_boxplot(bp)
+        
+        # Add reference line and median annotations
+        ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
+        for i, fcs in enumerate(sample_data):
+            ax.text(i + 1.3, np.median(fcs), f'{np.median(fcs):.2f}', 
+                   fontsize=8, va='center', color='#f39c12')
+        
+        # Labels and formatting
+        ax.set_ylabel(f'Log2 Ratio ({organism} / HeLa median)', fontsize=11, fontweight='bold')
+        ax.set_xlabel('Sample', fontsize=11, fontweight='bold')
+        ax.set_title(f'{organism} Protein Abundance vs HeLa', fontsize=13, fontweight='bold')
+        ax.set_xticks(positions)
+        ax.set_xticklabels([s.replace('report.pg_matrix_', '') for s in sample_names], 
+                          rotation=45, ha='right', fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+        
+        # Statistics box
+        all_medians = [np.median(fcs) for fcs in sample_data]
+        stats_text = f'n = {len(sample_data)} samples\nMedian range: {min(all_medians):.2f} to {max(all_medians):.2f}'
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=9, 
+               verticalalignment='top', color='white',
+               bbox=dict(boxstyle='round', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+    
     def plot_organisms_vs_hela(self):
         """Plot E.coli and Yeast proteins vs HeLa median to validate spike-in ratios."""
         data = self.load_data()
@@ -403,64 +470,8 @@ class MSPPDataPlotter:
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
         
-        for ax, organism, expected_ratio in [(ax1, 'E.coli', None), (ax2, 'Yeast', None)]:
-            sample_data = []
-            sample_names = []
-            
-            for source_file in data['Source_File'].unique():
-                if source_file not in self.file_to_raw_column:
-                    continue
-                
-                intensity_col = self.file_to_raw_column[source_file]
-                file_data = data[data['Source_File'] == source_file]
-                
-                fcs = self._calculate_organism_vs_hela(file_data, intensity_col, organism)
-                if fcs is not None and len(fcs) > 0:
-                    sample_data.append(fcs)
-                    sample_names.append(source_file)
-            
-            if not sample_data:
-                ax.text(0.5, 0.5, f'No {organism} data found', 
-                       ha='center', va='center', transform=ax.transAxes, fontsize=14)
-                continue
-            
-            # Sort by median
-            sorted_indices = sorted(range(len(sample_data)), 
-                                   key=lambda i: np.median(sample_data[i]), reverse=True)
-            sample_data = [sample_data[i] for i in sorted_indices]
-            sample_names = [sample_names[i] for i in sorted_indices]
-            
-            positions = np.arange(1, len(sample_data) + 1)
-            bp = ax.boxplot(sample_data, positions=positions, widths=0.6,
-                           patch_artist=True, showfliers=True, showmeans=True,
-                           flierprops=dict(marker='o', markerfacecolor='#e74c3c', 
-                                          markersize=3, alpha=0.4, markeredgecolor='none'),
-                           meanprops=dict(marker='s', markerfacecolor='white', 
-                                         markeredgecolor='white', markersize=4))
-            self._style_boxplot(bp)
-            
-            # Add reference line at log2=0 (1:1 ratio)
-            ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9, label='1:1 ratio')
-            
-            # Add median annotations
-            for i, fcs in enumerate(sample_data):
-                med = np.median(fcs)
-                ax.text(i + 1.3, med, f'{med:.2f}', fontsize=8, va='center', color='#f39c12')
-            
-            ax.set_ylabel(f'Log2 Ratio ({organism} / HeLa median)', fontsize=11, fontweight='bold')
-            ax.set_xlabel('Sample', fontsize=11, fontweight='bold')
-            ax.set_title(f'{organism} Protein Abundance vs HeLa', fontsize=13, fontweight='bold')
-            ax.set_xticks(positions)
-            ax.set_xticklabels([s.replace('report.pg_matrix_', '') for s in sample_names], 
-                              rotation=45, ha='right', fontsize=8)
-            ax.grid(axis='y', alpha=0.3)
-            
-            # Stats
-            all_medians = [np.median(fcs) for fcs in sample_data]
-            stats_text = f'n = {len(sample_data)} samples\nMedian range: {min(all_medians):.2f} to {max(all_medians):.2f}'
-            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=9, 
-                   verticalalignment='top', color='white',
-                   bbox=dict(boxstyle='round', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+        self._plot_single_organism_vs_hela(ax1, data, 'E.coli')
+        self._plot_single_organism_vs_hela(ax2, data, 'Yeast')
         
         plt.suptitle('Spike-in Validation: Expected Ratios vs Observed', fontsize=15, fontweight='bold', y=0.98)
         plt.tight_layout()
@@ -547,12 +558,7 @@ class MSPPDataPlotter:
         ax.grid(axis='y', alpha=0.3)
         
         # Legend
-        legend_elements = [
-            Line2D([0], [0], color='#f39c12', linestyle='--', linewidth=2, label='Expected 1:1 (log2=0)'),
-            Line2D([0], [0], color='#2c3e50', linewidth=2, label='Median'),
-            Line2D([0], [0], marker='s', color='w', markerfacecolor='white', markersize=6, label='Mean', linestyle='None')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
+        ax.legend(handles=self._create_fold_change_legend(), loc='upper right', fontsize=9)
         
         # Stats
         all_medians = [np.median(groups[g]) for g in sorted_groups]
