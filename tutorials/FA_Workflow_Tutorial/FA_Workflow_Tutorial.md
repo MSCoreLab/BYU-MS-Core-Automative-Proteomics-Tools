@@ -19,9 +19,10 @@ Before starting this tutorial, ensure you have:
 ### System Requirements
 
 -   **Administrator access** to your computer (required to run Fragpipe)
--   **Minimum 16 GB RAM** required. 32 GB or more is recommended for large datasets
--   **Sufficient disk space** at least 3x the size of your raw data files
--   (you will not have to worry about specs if you are remotely accessing a high-performance computing server)
+-   **Minimum 16 GB RAM** required; 32 GB or more is recommended for large datasets
+-   **Sufficient disk space:** at least 3x the size of your raw data files
+
+💡 **Note:** If you are remotely accessing a high-performance computing (HPC) server, these specifications are typically already met.
 
 ### Required Files
 
@@ -41,74 +42,103 @@ Before starting this tutorial, ensure you have:
 
 ## How to use Fragpipe to process DIA data {#how-to-use-fragpipe-to-process-dia-data}
 
-Step 0: Start by locating the Fragpipe shortcut on your desktop. It should look like this:
+### Step 0: Locate the Fragpipe shortcut
+
+Start by locating the Fragpipe shortcut on your desktop. It should look like this:
 
 ![Fragpipe desktop shortcut](./screenshots/Step_0.png)
 
-Step 1: Right-click the shortcut and select **"Run as administrator"**.
+### Step 1: Run Fragpipe as administrator
+
+Right-click the shortcut and select **"Run as administrator"**.
 
 ⚠️ **Important:** Fragpipe must be run as administrator or it will not function properly.
 
 ![Running Fragpipe as administrator](./screenshots/Step_1.png)
 
-Step 1 Alternative: If you can't find the shortcut on your desktop, press the Windows key to search for Fragpipe and click on **"Run as administrator"**.
+### Step 1 Alternative: Search for Fragpipe in Windows
+
+If you can't find the shortcut on your desktop, press the Windows key to search for Fragpipe and click on **"Run as administrator"**.
 
 ![Searching for Fragpipe in Windows](./screenshots/Step_1_Alt.png)
 
-Step 2: The program should open and greet you with this screen. You should be on the **Config** tab. It should look something like this:
+### Step 2: Open Fragpipe and verify Config tab
+
+The program should open and greet you with this screen. You should be on the **Config** tab. It should look something like this:
 
 ![Fragpipe Config tab](./screenshots/Step_2.png)
 
-Step 3: Pay attention to this top part of the menu. You may need to download some additional software tools for this workflow, so click **Download / Update**.
+### Step 3: Download MSFragger
+
+Pay attention to this top part of the menu. You may need to download some additional software tools for this workflow, so click **Download / Update**.
 
 ![MSFragger download section](./screenshots/Step_3.png)
 
-Step 4: A separate menu will pop up, asking for your credentials to obtain an academic license for MSFragger. Enter your name, email, and institution, agree to the terms and conditions, then click **Send Verification Email**. Check your email (including spam folder) for the verification code and enter it in the box. When you are done, click **Download**.
+### Step 4: Register for MSFragger academic license
+
+A separate menu will pop up, asking for your credentials to obtain an academic license for MSFragger. Enter your name, email, and institution, agree to the terms and conditions, then click **Send Verification Email**. Check your email (including spam folder) for the verification code and enter it in the box. When you are done, click **Download**.
 
 💡 **Tip:** This is a one-time registration. The verification email usually arrives within a few minutes.
 
 ![MSFragger registration](./screenshots/Step_4.png)
 
-Step 5: Scroll down to the next section on the menu. Fragpipe may already be bundled with DIA-NN, but if you cannot see "DIA-NN" with a version number listed, click **Download**.
+### Step 5: Download DIA-NN
+
+Scroll down to the next section on the menu. Fragpipe may already be bundled with DIA-NN, but if you cannot see "DIA-NN" with a version number listed, click **Download**.
 
 ![DIA-NN download section](./screenshots/Step_5.png)
 
-Step 6: Similarly, check if Python is listed with a version number. If you cannot see it, click **Download** as well. Python is required for generating reports.
+### Step 6: Download Python
+
+Similarly, check if Python is listed with a version number. If you cannot see it, click **Download** as well. Python is required for generating reports.
 
 ![Python download section](./screenshots/Step_6.png)
 
-✅ **Checkpoint:** Before proceeding, verify that all three components show version numbers: - MSFragger - DIA-NN\
-- Python
+✅ **Checkpoint:** Before proceeding, verify that all three components show version numbers: - MSFragger - DIA-NN - Python
 
-Step 7: Navigate to the **Workflow** tab. You should be on the Workflow tab now. It should look similar to this:
+### Step 7: Navigate to Workflow tab
+
+Navigate to the **Workflow** tab. You should be on the Workflow tab now. It should look similar to this:
 
 ![Workflow tab](./screenshots/Step_7.png)
 
-Step 8: Make sure to select **DIA_Umpire_SpecLib_Quant** as your workflow. This is the recommended workflow for DIA quantification with spectral library generation.
+### Step 8: Select DIA workflow
+
+Make sure to select **DIA_Umpire_SpecLib_Quant** as your workflow. This is the recommended workflow for DIA quantification with spectral library generation.
 
 💡 **Tip:** The default settings work well for most users. Advanced users who need to adjust parameters (enzyme specificity, mass tolerances, etc.) can refer to the [Fragpipe documentation](https://fragpipe.nesvilab.org/docs/tutorial_dia.html).
 
 ![Workflow selection](./screenshots/Step_8.png)
 
-Step 9: Navigate to the **Input** tab. Here you can add your .raw files generated by the mass spectrometer by clicking the **Add files** button. You can select multiple files at once.
+### Step 9: Add raw files
+
+Navigate to the **Input** tab. Here you can add your .raw files generated by the mass spectrometer by clicking the **Add files** button. You can select multiple files at once.
 
 ![Input tab](./screenshots/Step_9.png)
 
-Step 10: After your files have been added, you should see them listed here like this. The total count of .raw files is displayed at the bottom of the file list.
+### Step 10: Verify files are added
+
+After your files have been added, you should see them listed here like this. The total count of .raw files is displayed at the bottom of the file list.
 
 ![Files added to input list](./screenshots/Step_10.png)
 
-Step 11: Select all of the files by clicking on one file and then pressing **Ctrl + A** on your keyboard. All files should be highlighted now. Then click **Set DIA** to specify that these are DIA files.
+### Step 11: Set files as DIA mode
+
+Select all of the files by clicking on one file and then pressing **Ctrl + A** on your keyboard. All files should be highlighted now. Then click **Set DIA** to specify that these are DIA files.
 
 ⚠️ **Important:** This workflow only works with DIA data. Do not use it for DDA data.
 
 ![Selecting all files](./screenshots/Step_11.png)
 
-Step 12: After clicking **Set DIA**, you should see that the **Data Type** column for all your files now shows "DIA" like this:
+### Step 12: Verify DIA label
+
+After clicking **Set DIA**, you should see that the **Data Type** column for all your files now shows "DIA" like this:
 
 ![Files labeled as DIA](./screenshots/Step_12.png)
 
-Step 13: **⚠️ CRITICAL STEP:** You need to name the experimental condition for each file and assign bioreplicate numbers.
+### Step 13: Assign experiments and bioreplicates ⚠️ CRITICAL STEP
+
+You need to name the experimental condition for each file and assign bioreplicate numbers.
 
 **How to assign experiments and bioreplicates:** - **Experiment column:** Enter the condition name (e.g., "Control", "Treatment", "High_Dose") - **Bioreplicate column:** Enter a number for each replicate (e.g., 1, 2, 3) - Files from the same condition should have the **same Experiment name** but **different Bioreplicate numbers**
 
@@ -121,14 +151,18 @@ This information is **essential** for Fragpipe Analyst to perform statistical co
 
 ![Assigning experiments and bioreplicates](./screenshots/Step_13.png)
 
-Step 14: After you have named all of your experimental conditions and assigned bioreplicate numbers, your Input tab should look something like this:
+### Step 14: Verify experimental design
+
+After you have named all of your experimental conditions and assigned bioreplicate numbers, your Input tab should look something like this:
 
 ✅ **Checkpoint - Verify before proceeding:** - \[ \] All files have an Experiment name - \[ \] All files have a Bioreplicate number\
 - \[ \] Replicates of the same condition have the same Experiment name - \[ \] Replicates of the same condition have different Bioreplicate numbers - \[ \] Experiment names are spelled consistently (case-sensitive)
 
 ![Completed input configuration](./screenshots/Step_14.png)
 
-Step 15: Navigate to the **Database** tab. Here you need to add your FASTA file:
+### Step 15: Add FASTA file
+
+Navigate to the **Database** tab. Here you need to add your FASTA file:
 
 **Choose one option:** - Click **Add** if you already have a FASTA file saved on your computer - Click **Download** if you need to download a FASTA file from UniProt (works best for single-species samples)
 
@@ -136,27 +170,37 @@ Step 15: Navigate to the **Database** tab. Here you need to add your FASTA file:
 
 ![Database tab](./screenshots/Step_15.png)
 
-Step 16: After adding your FASTA file, you should see it listed in the database path. You also need to click **Add decoys** to generate decoy sequences.
+### Step 16: Add decoy sequences
+
+After adding your FASTA file, you should see it listed in the database path. You also need to click **Add decoys** to generate decoy sequences.
 
 ⚠️ **Important:** Decoy sequences are essential for false discovery rate (FDR) calculation. Always add decoys before running the analysis.
 
 ![FASTA file added](./screenshots/Step_16.png)
 
-Step 17: Navigate to the **Run** tab. Click **Browse** to select your output directory where results will be saved. Make sure you have sufficient disk space (at least 3x your raw data size). Then click the **Run** button to start processing your data.
+### Step 17: Run the analysis
+
+Navigate to the **Run** tab. Click **Browse** to select your output directory where results will be saved. Make sure you have sufficient disk space (at least 3x your raw data size). Then click the **Run** button to start processing your data.
 
 ⏱️ **Expected time:** Processing typically takes 30-120 minutes depending on the number of files and your computer specifications.
 
 ![Run tab](./screenshots/Step_17.png)
 
-Step 18: Before the run starts, a pop-up window may appear asking you to convert the .raw files to .mzML files. Click **Yes** to proceed. Fragpipe will automatically handle the conversion using MSConvert.
+### Step 18: Confirm file conversion
+
+Before the run starts, a pop-up window may appear asking you to convert the .raw files to .mzML files. Click **Yes** to proceed. Fragpipe will automatically handle the conversion using MSConvert.
 
 ![Raw file conversion prompt](./screenshots/Step_18.png)
 
-Step 19: After clicking Run, you should see log messages appearing in the console area. This indicates that the processing has started. You can monitor the progress of your run here. The process will go through several stages including file conversion, database searching, and quantification.
+### Step 19: Monitor the processing
+
+After clicking Run, you should see log messages appearing in the console area. This indicates that the processing has started. You can monitor the progress of your run here. The process will go through several stages including file conversion, database searching, and quantification.
 
 ![Processing log messages](./screenshots/Step_19.png)
 
-Step 20: If at any point during the run you see an error message like this, your run has been aborted.
+### Step 20: Troubleshooting errors (if needed)
+
+If at any point during the run you see an error message like this, your run has been aborted.
 
 ![Error message example](./screenshots/Step_20.png)
 
@@ -164,7 +208,15 @@ Step 20: If at any point during the run you see an error message like this, your
 
 💡 **Tip:** Check the log messages above the error for specific details about what went wrong.
 
-Step 21: When processing completes successfully, you should see: - "DONE" message in the log. When you see this message in the console, it means that the run has indeed successfully finished and your data is availble in .tsv files ready to be analyzed by Fragpipe Analyst! The next part of the tutorial will teach you how to prepare your data for analysis. ✅
+### Step 21: Verify successful completion
+
+When processing completes successfully, you should see a **"DONE"** message in the console log.
+
+✅ **Success!** Your data has been processed and is now available as .tsv files in your output directory, ready to be analyzed by Fragpipe Analyst!
+
+**Key output files to look for:** - `combined_protein.tsv` (protein-level results) - `combined_peptide.tsv` (peptide-level results) - `diann-output.tsv` (DIA-NN quantification results) - QC report files - `experiment.annotation.tsv` (required for Fragpipe Analyst) - `report.pg_matrix.tsv` (protein group matrix) - `report.pr_matrix.tsv` (precursor matrix)
+
+The next part of the tutorial will teach you how to prepare your data for analysis.
 
 ![Run successfully completed](./screenshots/Step_21.png)
 
@@ -172,8 +224,20 @@ Step 21: When processing completes successfully, you should see: - "DONE" messag
 
 ## How to use Fragpipe Analyst to analyze your processed data {#how-to-use-fragpipe-analyst-to-analyze-your-processed-data}
 
-Now that the processing step has completed, you may see multiple output files in your output directory. But the most important ones for Fragpipe Analyst are "experiment.annotation.tsv", "report.pg_matrix", and "report.pr_matrix" under the "dia-quant-output" subfolder. 
+Now that the processing step has completed, you should see multiple output files in your output directory. The most important files for Fragpipe Analyst are located in the **"fragpipe"** subfolder:
+
+**Required files:** - `experiment.annotation.tsv` - Contains your experimental design information - `report.pg_matrix.tsv` - Protein group quantification matrix - `report.pr_matrix.tsv` - Precursor quantification matrix (optional, for peptide-level analysis)
+
+### Step 22: Navigate to output directory
+
+Navigate to your output directory and locate the root folder. You should see a folder structure similar to this:
 
 ![Root folder directory](./screenshots/Step_22.png)
 
+### Step 23: Locate required files
+
+Open the **"fragpipe"** subfolder (or similar subdirectory depending on your Fragpipe version). Inside, you should find the required files listed above:
+
 ![Subfolder directory](./screenshots/Step_23.png)
+
+⚠️ **Important:** If you cannot find these files, the Fragpipe processing may not have completed successfully. Return to Step 21 and verify the run completed with a "DONE" message.
