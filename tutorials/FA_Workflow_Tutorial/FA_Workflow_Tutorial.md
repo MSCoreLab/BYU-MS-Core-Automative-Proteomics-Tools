@@ -1,5 +1,7 @@
 # How to set up a data processing + analysis workflow with Fragpipe and Fragpipe Analyst
 
+------------------------------------------------------------------------
+
 This tutorial will guide you through the steps needed to set up a data processing and analysis workflow for DIA data using Fragpipe and Fragpipe Analyst. Make sure you have Fragpipe installed on your computer before proceeding. You can download it from https://fragpipe.nesvilab.org/. Fragpipe Analyst will **not** work with any data processed with other software, so it is essential to use Fragpipe for this workflow. We'll start with DIA data processing in Fragpipe first. Let's begin!
 
 ## Table of Contents
@@ -158,15 +160,20 @@ Step 20: If at any point during the run you see an error message like this, your
 
 ![Error message example](./screenshots/Step_20.png)
 
-**Common issues and solutions:** - **Insufficient disk space:** Free up space and restart - **Incorrect FASTA file:** Verify the file is properly formatted and contains protein sequences - **Corrupted raw files:** Check that your .raw files are complete and not corrupted - **Missing dependencies:** Return to Step 5-6 and verify MSFragger, DIA-NN, and Python are installed - **Memory issues:** Close other programs to free up RAM, or process fewer files at once
+**Common issues and solutions:** - **Insufficient disk space:** Free up space and restart - **Incorrect FASTA file:** Verify the file is properly formatted and contains protein sequences - **Corrupted raw files:** Check that your .raw files are complete and not corrupted - **Missing dependencies:** Return to Step 5-6 and verify MSFragger, DIA-NN, and Python are installed - **Memory issues:** Close other programs to free up RAM, or process fewer files at once.
 
 💡 **Tip:** Check the log messages above the error for specific details about what went wrong.
 
-------------------------------------------------------------------------
+Step 21: When processing completes successfully, you should see: - "DONE" message in the log. When you see this message in the console, it means that the run has indeed successfully finished and your data is availble in .tsv files ready to be analyzed by Fragpipe Analyst! The next part of the tutorial will teach you how to prepare your data for analysis. ✅
 
-✅ **Success indicators:** When processing completes successfully, you should see: - "DONE" message in the log - Multiple output files in your output directory including: - `combined_protein.tsv` (protein-level results) - `combined_peptide.tsv` (peptide-level results)\
-- `diann-output.tsv` (DIA-NN quantification results) - QC report files
+![Run successfully completed](./screenshots/Step_21.png)
 
 ------------------------------------------------------------------------
 
 ## How to use Fragpipe Analyst to analyze your processed data {#how-to-use-fragpipe-analyst-to-analyze-your-processed-data}
+
+Now that the processing step has completed, you may see multiple output files in your output directory. But the most important ones for Fragpipe Analyst are "experiment.annotation.tsv", "report.pg_matrix", and "report.pr_matrix" under the "dia-quant-output" subfolder. 
+
+![Root folder directory](./screenshots/Step_22.png)
+
+![Subfolder directory](./screenshots/Step_23.png)
