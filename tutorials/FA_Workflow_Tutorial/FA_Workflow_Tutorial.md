@@ -86,5 +86,5 @@ Before the run starts, a pop-up window might appear asking you to convert the .r
 ![Step 18](./screenshots/Step_18.png)
 
 Step 19:
-
+![Step 19](./screenshots/Step_19.png)
 ## How to use Fragpipe Analyzer to analyze your data
