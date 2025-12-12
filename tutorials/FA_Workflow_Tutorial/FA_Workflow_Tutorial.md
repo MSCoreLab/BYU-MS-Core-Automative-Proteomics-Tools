@@ -150,7 +150,17 @@ This information is **essential** for Fragpipe Analyst to perform statistical co
 
 Your Input tab should now look similar to this:
 
-✅ **Checkpoint - Verify before proceeding:** - \[ \] All files have an Experiment name - \[ \] All files have a Bioreplicate number - \[ \] Replicates of the same condition have the same Experiment name - \[ \] Replicates of the same condition have different Bioreplicate numbers - \[ \] Experiment names are spelled consistently (case-sensitive)
+✅ **Checkpoint - Verify before proceeding:**
+
+-   [ ] All files have an Experiment name
+
+-   [ ] All files have a Bioreplicate number
+
+-   [ ] Replicates of the same condition have the same Experiment name
+
+-   [ ] Replicates of the same condition have different Bioreplicate numbers
+
+-   [ ] Experiment names are spelled consistently (case-sensitive)
 
 ![Completed input configuration](./screenshots/Step_14.png)
 
