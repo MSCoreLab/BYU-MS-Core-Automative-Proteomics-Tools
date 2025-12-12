@@ -405,3 +405,7 @@ Fragpipe Analyst will generate visualizations and statistical analyses. Explore 
 Use the export options in the results tabs to download tables, figures, or reports for further analysis.
 
 ![Exporting results from Fragpipe Analyst](./screenshots/Step_30.png)
+
+------------------------------------------------------------------------
+
+That's it! You've successfully processed DIA data with Fragpipe and analyzed it with Fragpipe Analyst. For more details on advanced features, refer to the [Fragpipe documentation](https://fragpipe.nesvilab.org/docs/) and [Fragpipe Analyst documentation](https://fragpipe-analyst.org/docs/).
