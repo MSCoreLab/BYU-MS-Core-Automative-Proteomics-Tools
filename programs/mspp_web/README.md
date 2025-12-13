@@ -81,12 +81,13 @@ python desktop_app.py
 
 - ✨ Modern, dark-themed UI
 - 📤 Drag-and-drop file upload
-- 📊 Three visualization modes:
+- 📊 Two visualization modes:
   - Protein ID bar chart
-  - E.coli vs Yeast fold change
-  - Organisms vs HeLa validation
+  - Sample Intensity Comparison (E25 vs E100)
 - 🖥️ Native desktop application
 - 🚀 Can be deployed as web server (Flask standalone)
+- 🔍 Automatic mix detection and grouping
+- 🎨 Color-coded E25/E100 comparison plots
 
 ## API Endpoints
 
@@ -94,9 +95,10 @@ python desktop_app.py
 - `POST /api/upload` - Upload TSV files
 - `GET /api/files` - List uploaded files
 - `DELETE /api/files` - Clear all files
-- `POST /api/plot/bar-chart` - Generate bar chart
-- `POST /api/plot/fold-change` - Generate fold change plot
-- `POST /api/plot/organisms-vs-hela` - Generate validation plot
+- `POST /api/plot/bar-chart` - Generate protein ID bar chart
+- `POST /api/plot/sample-comparison` - Generate E25 vs E100 intensity comparison
+
+See [API_CHANGES.md](./API_CHANGES.md) for detailed migration information.
 
 ## Tech Stack
 
@@ -147,12 +149,26 @@ mspp_web/
 └── README.md
 ```
 
+## Expected File Format
+
+Files should follow the naming convention:
+- `report.pg_matrix_E25_<mix_params>.tsv`
+- `report.pg_matrix_E100_<mix_params>.tsv`
+
+Example:
+- `report.pg_matrix_E25_30_4_440960_600.tsv`
+- `report.pg_matrix_E100_30_4_440960_600.tsv`
+
+The application automatically:
+- Detects E25/E100 patterns (flexible: E25, E-25, E_25, etc.)
+- Groups samples by mix identifier
+- Separates different mixes with visual boundaries
+
 ## Next Steps
 
-- Add grouped fold change plot
-- Implement pattern matching UI for grouping
 - Add plot export (PNG/SVG download)
 - Add data table view
 - Implement plot zoom/pan
 - Add loading progress indicators
 - Create installer (PyInstaller + NSIS)
+- Add statistics summary panel
