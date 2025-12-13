@@ -15,7 +15,6 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 CORS(app)  # Enable CORS for React dev server
@@ -108,34 +107,51 @@ class MSPPDataProcessor:
         hela_data = self._get_organism_data(file_data, intensity_col, 'HeLa')
         return hela_data.median() if len(hela_data) > 0 else 1.0
     
-    def _calculate_protein_fold_changes(self, file_data, intensity_col):
-        """Calculate per-protein log2 fold changes (E.coli/Yeast)."""
-        ecoli_data = self._get_organism_data(file_data, intensity_col, 'E.coli')
-        yeast_data = self._get_organism_data(file_data, intensity_col, 'Yeast')
+    def _extract_mix_identifier(self, filename):
+        """Extract mix identifier from filename, excluding E25/E100 prefix.
         
-        if len(ecoli_data) == 0 or len(yeast_data) == 0:
+        For 'report.pg_matrix_E25_30_4_440960_600.tsv', returns '30_4_440960_600'.
+        This ensures E25 and E100 files from the same mix are grouped together.
+        """
+        import re
+        # Remove E25/E100 prefix first to avoid capturing it in the mix ID
+        cleaned = re.sub(r'E[-_]?\d+[-_]?', '', filename, flags=re.IGNORECASE)
+        
+        # Extract the numeric pattern (e.g., 30_4_440960_600)
+        match = re.search(r'(\d+_\d+_\d+_\d+)', cleaned)
+        if match:
+            return match.group(1)
+        
+        # Fallback: return cleaned filename
+        cleaned = cleaned.replace('report.pg_matrix_', '').replace('.tsv', '')
+        return cleaned if cleaned else filename
+    
+    def _calculate_sample_intensities(self, file_data, source_file, organism):
+        """Calculate HeLa-normalized intensities for all proteins in a single sample.
+        
+        Args:
+            file_data: DataFrame for the sample
+            source_file: Name of the source file
+            organism: 'E.coli' or 'Yeast'
+        
+        Returns:
+            Array of normalized log2 intensities, or None if insufficient data
+        """
+        if source_file not in self.file_to_raw_column:
             return None
         
-        hela_median = self._get_hela_median(file_data, intensity_col)
-        ecoli_norm = ecoli_data / hela_median
-        yeast_median = (yeast_data / hela_median).median()
+        intensity_col = self.file_to_raw_column[source_file]
         
-        protein_fcs = np.log2(ecoli_norm / yeast_median)
-        return protein_fcs.replace([np.inf, -np.inf], np.nan).dropna().values
-    
-    def _calculate_organism_vs_hela(self, file_data, intensity_col, organism):
-        """Calculate per-protein log2 fold changes (Organism/HeLa median)."""
         org_data = self._get_organism_data(file_data, intensity_col, organism)
-        
         if len(org_data) == 0:
             return None
         
         hela_median = self._get_hela_median(file_data, intensity_col)
-        if hela_median == 1.0:
-            return None
+        normalized = np.log2(org_data / hela_median)
         
-        protein_fcs = np.log2(org_data / hela_median)
-        return protein_fcs.replace([np.inf, -np.inf], np.nan).dropna().values
+        # Filter out invalid values
+        intensities = np.array(normalized.values)
+        return intensities[np.isfinite(intensities)]
     
     def generate_bar_chart(self, data):
         """Generate protein ID counts bar chart."""
@@ -159,215 +175,212 @@ class MSPPDataProcessor:
         
         return self._fig_to_base64(fig)
     
-    def generate_fold_change_plot(self, data):
-        """Generate E.coli vs Yeast fold change plot."""
-        fig, ax = plt.subplots(figsize=(12, 7))
-        
-        # Calculate fold changes per sample
-        results = []
-        for source_file in data['Source_File'].unique():
-            if source_file not in self.file_to_raw_column:
-                continue
-            
-            intensity_col = self.file_to_raw_column[source_file]
-            file_data = data[data['Source_File'] == source_file]
-            
-            if intensity_col not in file_data.columns:
-                continue
-            
-            fcs = self._calculate_protein_fold_changes(file_data, intensity_col)
-            if fcs is not None and len(fcs) > 0:
-                results.append((source_file, fcs))
-        
-        if not results:
-            plt.close(fig)
-            return None
-        
-        # Sort by median
-        sorted_results = sorted(results, key=lambda x: np.median(x[1]), reverse=True)
-        sample_names = [x[0] for x in sorted_results]
-        sample_fcs = [x[1] for x in sorted_results]
-        
-        # Create box plots
-        positions = np.arange(1, len(sample_fcs) + 1)
-        bp = ax.boxplot(sample_fcs, positions=positions, widths=0.6,
-                        patch_artist=True, showfliers=True, showmeans=True,
-                        flierprops=dict(marker='o', markerfacecolor='#3498db', 
-                                       markersize=3, alpha=0.4, markeredgecolor='none'),
-                        meanprops=dict(marker='s', markerfacecolor='white', 
-                                      markeredgecolor='white', markersize=4))
-        
-        self._style_boxplot(bp)
-        
-        ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
-        
-        # Labels
-        ax.set_ylabel('Log2 Abundance Ratio (E.coli / Yeast median)', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Sample', fontsize=12, fontweight='bold')
-        ax.set_title('Protein Fold Change (HeLa-Normalized)', fontsize=14, fontweight='bold')
-        ax.set_xticks(positions)
-        ax.set_xticklabels([s.replace('report.pg_matrix_', '') for s in sample_names], 
-                          rotation=45, ha='right', fontsize=9)
-        ax.grid(axis='y', alpha=0.3)
-        
-        # Legend
-        legend_elements = [
-            Line2D([0], [0], color='#f39c12', linestyle='--', linewidth=2, label='Expected 1:1'),
-            Line2D([0], [0], color='#2c3e50', linewidth=2, label='Median')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
-        
-        plt.tight_layout()
-        return self._fig_to_base64(fig)
-    
-    def generate_organisms_vs_hela(self, data):
-        """Generate organisms vs HeLa comparison plot."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
-        
-        for ax, organism in [(ax1, 'E.coli'), (ax2, 'Yeast')]:
-            sample_data = []
-            sample_names = []
-            
-            for source_file in data['Source_File'].unique():
-                if source_file not in self.file_to_raw_column:
-                    continue
-                
-                intensity_col = self.file_to_raw_column[source_file]
-                file_data = data[data['Source_File'] == source_file]
-                
-                fcs = self._calculate_organism_vs_hela(file_data, intensity_col, organism)
-                if fcs is not None and len(fcs) > 0:
-                    sample_data.append(fcs)
-                    sample_names.append(source_file)
-            
-            if not sample_data:
-                ax.text(0.5, 0.5, f'No {organism} data', ha='center', va='center', 
-                       transform=ax.transAxes, fontsize=14)
-                continue
-            
-            # Sort by median
-            sorted_pairs = sorted(zip(sample_data, sample_names), 
-                                 key=lambda x: np.median(x[0]), reverse=True)
-            sample_data, sample_names = zip(*sorted_pairs)
-            
-            positions = np.arange(1, len(sample_data) + 1)
-            bp = ax.boxplot(sample_data, positions=positions, widths=0.6,
-                           patch_artist=True, showfliers=True, showmeans=True,
-                           flierprops=dict(marker='o', markerfacecolor='#e74c3c', 
-                                          markersize=3, alpha=0.4, markeredgecolor='none'),
-                           meanprops=dict(marker='s', markerfacecolor='white', 
-                                         markeredgecolor='white', markersize=4))
-            
-            self._style_boxplot(bp)
-            
-            ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
-            ax.set_ylabel(f'Log2 Ratio ({organism} / HeLa median)', fontsize=11, fontweight='bold')
-            ax.set_xlabel('Sample', fontsize=11, fontweight='bold')
-            ax.set_title(f'{organism} vs HeLa', fontsize=13, fontweight='bold')
-            ax.set_xticks(positions)
-            ax.set_xticklabels([s.replace('report.pg_matrix_', '') for s in sample_names], 
-                              rotation=45, ha='right', fontsize=8)
-            ax.grid(axis='y', alpha=0.3)
-        
-        plt.suptitle('Spike-in Validation', fontsize=15, fontweight='bold', y=0.98)
-        plt.tight_layout()
-        return self._fig_to_base64(fig)
-    
-    def generate_grouped_fold_change(self, data, pattern):
-        """Generate grouped fold change plot by regex pattern."""
+    def generate_sample_comparison(self, data):
+        """Generate E25 vs E100 intensity comparison plot."""
         import re
         
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error as e:
-            return {'error': f'Invalid regex pattern: {str(e)}'}
+        # Get all sample files
+        sample_files = sorted(data['Source_File'].unique())
         
-        # Group files by pattern and calculate fold changes
-        groups = {}
-        unmatched = []
+        if len(sample_files) == 0:
+            return None
         
-        for source_file in data['Source_File'].unique():
-            match = regex.search(source_file)
-            if not match or source_file not in self.file_to_raw_column:
-                if not match:
-                    unmatched.append(source_file)
-                continue
+        # Group samples by mix identifier
+        mix_groups = {}
+        for source_file in sample_files:
+            mix_id = self._extract_mix_identifier(source_file)
+            if mix_id not in mix_groups:
+                mix_groups[mix_id] = []
+            mix_groups[mix_id].append(source_file)
+        
+        sorted_mixes = sorted(mix_groups.keys())
+        
+        # Calculate intensities for E25 and E100 separately
+        ecoli_results = []
+        yeast_results = []
+        mix_boundaries = []
+        current_position = 0
+        
+        for mix_id in sorted_mixes:
+            mix_samples = sorted(mix_groups[mix_id])
             
-            group_name = match.group(1) if match.lastindex else match.group(0)
-            file_data = data[data['Source_File'] == source_file]
-            intensity_col = self.file_to_raw_column[source_file]
+            # Find E25 and E100 files
+            e25_file = None
+            e100_file = None
             
-            fcs = self._calculate_protein_fold_changes(file_data, intensity_col)
-            if fcs is not None and len(fcs) > 0:
-                if group_name not in groups:
-                    groups[group_name] = []
-                groups[group_name].extend(fcs)
+            for source_file in mix_samples:
+                upper = source_file.upper()
+                if re.search(r'E[-_]?25', upper):
+                    e25_file = source_file
+                elif re.search(r'E[-_]?100', upper):
+                    e100_file = source_file
+            
+            if e25_file and e100_file:
+                # E.coli
+                e25_ecoli = self._calculate_sample_intensities(
+                    data[data['Source_File'] == e25_file], e25_file, 'E.coli'
+                )
+                e100_ecoli = self._calculate_sample_intensities(
+                    data[data['Source_File'] == e100_file], e100_file, 'E.coli'
+                )
+                
+                # Yeast
+                e25_yeast = self._calculate_sample_intensities(
+                    data[data['Source_File'] == e25_file], e25_file, 'Yeast'
+                )
+                e100_yeast = self._calculate_sample_intensities(
+                    data[data['Source_File'] == e100_file], e100_file, 'Yeast'
+                )
+                
+                if e25_ecoli is not None:
+                    ecoli_results.append(('E25', e25_ecoli, mix_id))
+                    current_position += 1
+                if e100_ecoli is not None:
+                    ecoli_results.append(('E100', e100_ecoli, mix_id))
+                    current_position += 1
+                
+                if e25_yeast is not None:
+                    yeast_results.append(('E25', e25_yeast, mix_id))
+                if e100_yeast is not None:
+                    yeast_results.append(('E100', e100_yeast, mix_id))
+            
+            if current_position > 0:
+                mix_boundaries.append(current_position)
         
-        if not groups:
-            available_files = ', '.join(list(data['Source_File'].unique())[:3])
-            return {'error': f'No files matched pattern \'{pattern}\'. Available files: {available_files}...'}
-        
-        # Sort groups by median fold change
-        sorted_groups = sorted(groups.keys(), key=lambda g: np.median(groups[g]), reverse=True)
+        if not ecoli_results and not yeast_results:
+            return None
         
         # Create the plot
-        fig, ax = plt.subplots(figsize=(12, 7))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
         
-        positions = np.arange(1, len(sorted_groups) + 1)
-        box_data = [np.array(groups[g]) for g in sorted_groups]
+        # E.coli plot
+        if ecoli_results:
+            ecoli_labels = [r[0] for r in ecoli_results]
+            ecoli_data = [r[1] for r in ecoli_results]
+            positions = np.arange(1, len(ecoli_data) + 1)
+            
+            bp1 = ax1.boxplot(
+                ecoli_data, positions=positions, widths=0.6,
+                patch_artist=True, showfliers=True, showmeans=True,
+                flierprops=dict(marker='o', markerfacecolor='#e67e22', markersize=3, alpha=0.4, markeredgecolor='none'),
+                meanprops=dict(marker='s', markerfacecolor='white', markeredgecolor='white', markersize=5)
+            )
+            
+            for i, (patch, label) in enumerate(zip(bp1['boxes'], ecoli_labels)):
+                if label == 'E25':
+                    patch.set_facecolor('#e67e22')
+                else:
+                    patch.set_facecolor('#3498db')
+                patch.set_alpha(0.7)
+                patch.set_edgecolor('white')
+                patch.set_linewidth(1.5)
+            
+            plt.setp(bp1['whiskers'], color='white', linewidth=1.5)
+            plt.setp(bp1['caps'], color='white', linewidth=1.5)
+            plt.setp(bp1['medians'], color='#2c3e50', linewidth=2.5)
+            
+            # Add median annotations
+            for i, intensities in enumerate(ecoli_data):
+                median_val = np.median(intensities)
+                ax1.text(i + 1.35, median_val, f'{median_val:.2f}',
+                        fontsize=9, va='center', color='white', fontweight='bold')
+            
+            # Add visual separators
+            ylim = ax1.get_ylim()
+            prev_boundary = 0
+            for idx, boundary in enumerate(mix_boundaries[:-1]):
+                ax1.axvline(x=boundary + 0.5, color='#555555', linestyle='-', linewidth=2, alpha=0.8)
+                mid_point = (prev_boundary + boundary) / 2 + 0.5
+                if idx < len(sorted_mixes):
+                    ax1.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[idx]}',
+                            ha='center', va='top', fontsize=9, color='#aaaaaa',
+                            bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+                prev_boundary = boundary
+            
+            if sorted_mixes:
+                mid_point = (prev_boundary + len(ecoli_data)) / 2 + 0.5
+                ax1.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[-1]}',
+                        ha='center', va='top', fontsize=9, color='#aaaaaa',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+            
+            ax1.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9, label='Reference (1:1)')
+            ax1.set_ylabel('Log2 Intensity (HeLa-Normalized)', fontsize=12, fontweight='bold')
+            ax1.set_xlabel('Sample', fontsize=12, fontweight='bold')
+            ax1.set_title('E.coli Intensity Comparison', fontsize=14, fontweight='bold')
+            ax1.set_xticks(positions)
+            ax1.set_xticklabels(ecoli_labels, rotation=0, ha='center', fontsize=10)
+            ax1.grid(axis='y', alpha=0.3)
+            ax1.legend(fontsize=9)
+        else:
+            ax1.text(0.5, 0.5, 'No E.coli data', ha='center', va='center', 
+                    transform=ax1.transAxes, fontsize=14)
         
-        bp = ax.boxplot(box_data, positions=positions, widths=0.6,
-                        patch_artist=True, showfliers=True, showmeans=True,
-                        flierprops=dict(marker='o', markerfacecolor='#3498db', 
-                                       markersize=3, alpha=0.3, markeredgecolor='none'),
-                        meanprops=dict(marker='s', markerfacecolor='white', 
-                                      markeredgecolor='white', markersize=5))
+        # Yeast plot
+        if yeast_results:
+            yeast_labels = [r[0] for r in yeast_results]
+            yeast_data = [r[1] for r in yeast_results]
+            positions = np.arange(1, len(yeast_data) + 1)
+            
+            bp2 = ax2.boxplot(
+                yeast_data, positions=positions, widths=0.6,
+                patch_artist=True, showfliers=True, showmeans=True,
+                flierprops=dict(marker='o', markerfacecolor='#16a085', markersize=3, alpha=0.4, markeredgecolor='none'),
+                meanprops=dict(marker='s', markerfacecolor='white', markeredgecolor='white', markersize=5)
+            )
+            
+            for i, (patch, label) in enumerate(zip(bp2['boxes'], yeast_labels)):
+                if label == 'E25':
+                    patch.set_facecolor('#16a085')
+                else:
+                    patch.set_facecolor('#9b59b6')
+                patch.set_alpha(0.7)
+                patch.set_edgecolor('white')
+                patch.set_linewidth(1.5)
+            
+            plt.setp(bp2['whiskers'], color='white', linewidth=1.5)
+            plt.setp(bp2['caps'], color='white', linewidth=1.5)
+            plt.setp(bp2['medians'], color='#2c3e50', linewidth=2.5)
+            
+            # Add median annotations
+            for i, intensities in enumerate(yeast_data):
+                median_val = np.median(intensities)
+                ax2.text(i + 1.35, median_val, f'{median_val:.2f}',
+                        fontsize=9, va='center', color='white', fontweight='bold')
+            
+            # Add visual separators
+            ylim = ax2.get_ylim()
+            prev_boundary = 0
+            for idx, boundary in enumerate(mix_boundaries[:-1]):
+                ax2.axvline(x=boundary + 0.5, color='#555555', linestyle='-', linewidth=2, alpha=0.8)
+                mid_point = (prev_boundary + boundary) / 2 + 0.5
+                if idx < len(sorted_mixes):
+                    ax2.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[idx]}',
+                            ha='center', va='top', fontsize=9, color='#aaaaaa',
+                            bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+                prev_boundary = boundary
+            
+            if sorted_mixes:
+                mid_point = (prev_boundary + len(yeast_data)) / 2 + 0.5
+                ax2.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[-1]}',
+                        ha='center', va='top', fontsize=9, color='#aaaaaa',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
+            
+            ax2.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9, label='Reference (1:1)')
+            ax2.set_ylabel('Log2 Intensity (HeLa-Normalized)', fontsize=12, fontweight='bold')
+            ax2.set_xlabel('Sample', fontsize=12, fontweight='bold')
+            ax2.set_title('Yeast Intensity Comparison', fontsize=14, fontweight='bold')
+            ax2.set_xticks(positions)
+            ax2.set_xticklabels(yeast_labels, rotation=0, ha='center', fontsize=10)
+            ax2.grid(axis='y', alpha=0.3)
+            ax2.legend(fontsize=9)
+        else:
+            ax2.text(0.5, 0.5, 'No Yeast data', ha='center', va='center',
+                    transform=ax2.transAxes, fontsize=14)
         
-        self._style_boxplot(bp)
-        
-        # Add expected ratio reference line
-        ax.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9)
-        
-        # Add median annotations and protein counts
-        y_max = max([max(d) for d in box_data]) if box_data else 1
-        for i, group in enumerate(sorted_groups):
-            med = np.median(groups[group])
-            ax.text(i + 1.3, med, f'{med:.2f}', fontsize=10, va='center', color='#f39c12', fontweight='bold')
-            ax.text(i + 1, y_max + 0.3, f'{len(groups[group])} proteins', 
-                   fontsize=9, ha='center', va='bottom', color='white')
-        
-        # Labels
-        ax.set_ylabel('Log2 Abundance Ratio (E.coli / Yeast)', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Group', fontsize=12, fontweight='bold')
-        ax.set_title('Per-Protein Fold Change by Group (HeLa-Normalized)', fontsize=14, fontweight='bold')
-        ax.set_xticks(positions)
-        ax.set_xticklabels(sorted_groups, rotation=45, ha='right', fontsize=10)
-        ax.grid(axis='y', alpha=0.3)
-        
-        # Legend
-        legend_elements = [
-            Line2D([0], [0], color='#f39c12', linestyle='--', linewidth=2, label='Expected 1:1'),
-            Line2D([0], [0], color='#2c3e50', linewidth=2, label='Median'),
-            Line2D([0], [0], marker='s', color='w', markerfacecolor='white', markersize=6, label='Mean', linestyle='None')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
-        
-        # Stats
-        all_medians = [np.median(groups[g]) for g in sorted_groups]
-        stats_text = f'{len(sorted_groups)} groups\nMedian range: {min(all_medians):.2f} to {max(all_medians):.2f}'
-        ax.text(0.02, 0.02, stats_text, transform=ax.transAxes, fontsize=9, 
-               verticalalignment='bottom', color='white',
-               bbox=dict(boxstyle='round', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
-        
+        plt.suptitle('E25 vs E100 Intensity Comparison by Mix (HeLa-Normalized)',
+                    fontsize=15, fontweight='bold', y=0.98)
         plt.tight_layout()
-        
-        img_base64 = self._fig_to_base64(fig)
-        
-        return {
-            'image': img_base64,
-            'unmatched_count': len(unmatched),
-            'group_count': len(sorted_groups)
-        }
+        return self._fig_to_base64(fig)
     
     def _style_boxplot(self, bp):
         """Apply consistent styling to boxplot elements."""
@@ -461,53 +474,18 @@ def generate_bar_chart():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/plot/fold-change', methods=['POST'])
-def generate_fold_change():
-    """Generate E.coli vs Yeast fold change plot."""
+@app.route('/api/plot/sample-comparison', methods=['POST'])
+def generate_sample_comparison():
+    """Generate E25 vs E100 intensity comparison plot."""
     if not uploaded_files:
         return jsonify({'error': 'No files uploaded'}), 400
     
     try:
         data = processor.load_tsv_files(list(uploaded_files.values()))
-        img_base64 = processor.generate_fold_change_plot(data)
+        img_base64 = processor.generate_sample_comparison(data)
         if img_base64 is None:
-            return jsonify({'error': 'No valid data for fold change analysis'}), 400
+            return jsonify({'error': 'No valid E25/E100 pairs found'}), 400
         return jsonify({'image': img_base64})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/plot/organisms-vs-hela', methods=['POST'])
-def generate_organisms_vs_hela():
-    """Generate organisms vs HeLa comparison plot."""
-    if not uploaded_files:
-        return jsonify({'error': 'No files uploaded'}), 400
-    
-    try:
-        data = processor.load_tsv_files(list(uploaded_files.values()))
-        img_base64 = processor.generate_organisms_vs_hela(data)
-        return jsonify({'image': img_base64})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/plot/grouped-fold-change', methods=['POST'])
-def generate_grouped_fold_change():
-    """Generate grouped fold change plot."""
-    if not uploaded_files:
-        return jsonify({'error': 'No files uploaded'}), 400
-    
-    try:
-        request_data = request.get_json()
-        pattern = request_data.get('pattern', r'(E\d+)')
-        
-        data = processor.load_tsv_files(list(uploaded_files.values()))
-        result = processor.generate_grouped_fold_change(data, pattern)
-        
-        if 'error' in result:
-            return jsonify(result), 400
-        
-        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
