@@ -15,15 +15,11 @@ import numpy as np
 # Set dark mode for matplotlib
 plt.style.use("dark_background")
 
-
-class MSPPDataPlotter:
-    """Simple GUI for plotting protein data."""
-
+class DataProcessor:
+    """Handles all data loading, processing, and calculation logic."""
+    
     # Class-level constants
     ORGANISMS = ["HeLa", "E.coli", "Yeast"]
-    COLORS = {"HeLa": "#9b59b6", "E.coli": "#e67e22", "Yeast": "#16a085", "Unknown": "#95a5a6"}
-
-    # Organism pattern matching for faster identification
     ORGANISM_PATTERNS = {
         "HeLa": ["_HUMAN", "HOMO_SAPIENS"],
         "E.coli": [
@@ -39,8 +35,231 @@ class MSPPDataPlotter:
         ],
         "Yeast": ["_YEAST", "SACCHAROMYCES", "CEREVISIAE"],
     }
+    
+    def __init__(self):
+        self.file_to_raw_column = {}
+        self.cached_data = None
+        self.cached_file_list = []
+    
+    def identify_organism_vectorized(self, series):
+        """Vectorized organism identification - much faster than row-by-row apply."""
+        upper = series.fillna("").astype(str).str.upper()
+        result = pd.Series("Unknown", index=series.index)
 
-    # Dark mode colors
+        for organism, patterns in self.ORGANISM_PATTERNS.items():
+            mask = upper.str.contains("|".join(patterns), regex=True)
+            result = result.where(~mask, organism)
+
+        return pd.Categorical(result, categories=self.ORGANISMS + ["Unknown"])
+    
+    def load_data(self, file_paths):
+        """Load data from selected files with caching."""
+        if not file_paths:
+            raise ValueError("No files provided")
+        
+        # Return cached data if file list unchanged
+        if self.cached_data is not None and self.cached_file_list == file_paths:
+            return self.cached_data
+
+        all_data = []
+        self.file_to_raw_column = {}
+
+        for filepath in file_paths:
+            df = pd.read_csv(filepath, sep="\t", low_memory=False)
+            source_name = Path(filepath).stem
+            df["Source_File"] = source_name
+
+            # Find and map the .raw column
+            raw_cols = [col for col in df.columns if ".raw" in col.lower()]
+            if raw_cols:
+                self.file_to_raw_column[source_name] = raw_cols[0]
+
+            # Identify organism from protein name column
+            protein_col = next(
+                (col for col in ["Protein.Names", "Protein.Group"] if col in df.columns), None
+            ) or next((col for col in df.columns if "protein" in col.lower()), None)
+
+            df["Organism"] = (
+                self.identify_organism_vectorized(df[protein_col]) if protein_col else "Unknown"
+            )
+            all_data.append(df)
+
+        # Cache the result
+        self.cached_data = pd.concat(all_data, ignore_index=True)
+        self.cached_file_list = file_paths.copy()
+        return self.cached_data
+    
+    def clear_cache(self):
+        """Clear cached data."""
+        self.cached_data = None
+        self.cached_file_list = []
+    
+    def _get_organism_data(self, file_data, intensity_col, organism):
+        """Extract positive numeric intensity data for an organism."""
+        data = pd.to_numeric(
+            file_data[file_data["Organism"] == organism][intensity_col], errors="coerce"
+        )
+        return data[data > 0].dropna()
+
+    def _get_hela_median(self, file_data, intensity_col):
+        """Get HeLa median for normalization, with fallback."""
+        hela_data = self._get_organism_data(file_data, intensity_col, "HeLa")
+        return hela_data.median() if len(hela_data) > 0 else 1.0
+    
+    def _extract_mix_identifier(self, filename):
+        """Extract mix identifier from filename, excluding E25/E100 prefix.
+        
+        For 'report.pg_matrix_E25_30_4_440960_600.tsv', returns '30_4_440960_600'.
+        This ensures E25 and E100 files from the same mix are grouped together.
+        """
+        # Remove E25/E100 prefix first to avoid capturing it in the mix ID
+        cleaned = re.sub(r'E[-_]?\d+[-_]?', '', filename, flags=re.IGNORECASE)
+        
+        # Extract the numeric pattern (e.g., 30_4_440960_600)
+        match = re.search(r'(\d+_\d+_\d+_\d+)', cleaned)
+        if match:
+            return match.group(1)
+        
+        # Fallback: return cleaned filename
+        cleaned = cleaned.replace('report.pg_matrix_', '').replace('.tsv', '')
+        return cleaned if cleaned else filename
+    
+    def _calculate_sample_intensities(self, file_data, source_file, organism):
+        """Calculate HeLa-normalized intensities for all proteins in a single sample.
+        
+        Args:
+            file_data: DataFrame for the sample
+            source_file: Name of the source file
+            organism: 'E.coli' or 'Yeast'
+        
+        Returns:
+            Array of normalized log2 intensities, or None if insufficient data
+        """
+        if source_file not in self.file_to_raw_column:
+            return None
+        
+        intensity_col = self.file_to_raw_column[source_file]
+        
+        org_data = self._get_organism_data(file_data, intensity_col, organism)
+        if len(org_data) == 0:
+            return None
+        
+        hela_median = self._get_hela_median(file_data, intensity_col)
+        normalized = np.log2(org_data / hela_median)
+        
+        # Filter out invalid values
+        intensities = np.array(normalized.values)
+        return intensities[np.isfinite(intensities)]
+    
+    def calculate_protein_id_counts(self, data):
+        """Calculate protein ID counts grouped by organism and source file."""
+        counts = data.groupby(["Source_File", "Organism"]).size().unstack(fill_value=0)
+        org_order = self.ORGANISMS + ["Unknown"]
+        counts = counts.reindex(
+            columns=[col for col in org_order if col in counts.columns], fill_value=0
+        )
+        return counts
+    
+    def calculate_sample_comparison_data(self, data):
+        """Calculate E25 vs E100 intensity comparison data for all mixes.
+        
+        Returns:
+            Dict with 'ecoli_results', 'yeast_results', 'mix_boundaries', 'sorted_mixes'
+        """
+        # Get all sample files
+        sample_files = sorted(data["Source_File"].unique())
+        
+        if len(sample_files) == 0:
+            raise ValueError("No sample files found in data")
+        
+        # Group samples by mix identifier
+        mix_groups = {}
+        for source_file in sample_files:
+            mix_id = self._extract_mix_identifier(source_file)
+            if mix_id not in mix_groups:
+                mix_groups[mix_id] = []
+            mix_groups[mix_id].append(source_file)
+        
+        sorted_mixes = sorted(mix_groups.keys())
+        
+        # Calculate intensities for E25 and E100 separately for each mix
+        ecoli_results = []
+        yeast_results = []
+        mix_boundaries = []
+        current_position = 0
+        
+        for mix_id in sorted_mixes:
+            mix_samples = sorted(mix_groups[mix_id])
+            
+            # Find E25 and E100 files
+            e25_file = None
+            e100_file = None
+            
+            for source_file in mix_samples:
+                upper = source_file.upper()
+                if re.search(r'E[-_]?25', upper):
+                    e25_file = source_file
+                elif re.search(r'E[-_]?100', upper):
+                    e100_file = source_file
+            
+            if e25_file and e100_file:
+                # E.coli
+                e25_ecoli = self._calculate_sample_intensities(
+                    data[data["Source_File"] == e25_file], e25_file, "E.coli"
+                )
+                e100_ecoli = self._calculate_sample_intensities(
+                    data[data["Source_File"] == e100_file], e100_file, "E.coli"
+                )
+                
+                # Yeast
+                e25_yeast = self._calculate_sample_intensities(
+                    data[data["Source_File"] == e25_file], e25_file, "Yeast"
+                )
+                e100_yeast = self._calculate_sample_intensities(
+                    data[data["Source_File"] == e100_file], e100_file, "Yeast"
+                )
+                
+                # Add results
+                if e25_ecoli is not None:
+                    ecoli_results.append(("E25", e25_ecoli, mix_id))
+                    current_position += 1
+                if e100_ecoli is not None:
+                    ecoli_results.append(("E100", e100_ecoli, mix_id))
+                    current_position += 1
+                
+                if e25_yeast is not None:
+                    yeast_results.append(("E25", e25_yeast, mix_id))
+                if e100_yeast is not None:
+                    yeast_results.append(("E100", e100_yeast, mix_id))
+            else:
+                if not e25_file or not e100_file:
+                    print(f"Warning: Mix '{mix_id}' missing {'E25' if not e25_file else 'E100'} file. Skipping.")
+            
+            if current_position > 0:
+                mix_boundaries.append(current_position)
+        
+        if not ecoli_results and not yeast_results:
+            # Generate error details
+            error_details = {
+                'sample_files': sample_files,
+                'sorted_mixes': sorted_mixes,
+                'mix_groups': mix_groups
+            }
+            raise ValueError("No valid E25/E100 pairs found", error_details)
+        
+        return {
+            'ecoli_results': ecoli_results,
+            'yeast_results': yeast_results,
+            'mix_boundaries': mix_boundaries,
+            'sorted_mixes': sorted_mixes
+        }
+
+
+class MSPPDataPlotter:
+    """GUI application for plotting protein data."""
+
+    # UI color scheme
+    COLORS = {"HeLa": "#9b59b6", "E.coli": "#e67e22", "Yeast": "#16a085", "Unknown": "#95a5a6"}
     DARK_BG = "#1e1e1e"
     DARK_FG = "#e0e0e0"
     DARK_ACCENT = "#3c3c3c"
@@ -51,12 +270,14 @@ class MSPPDataPlotter:
         self.root.title("MSPP Data Plotter")
         self.root.geometry("400x500")
 
-        # Apply dark mode theme
-        self._setup_dark_theme()
-
+        # Initialize data processor
+        self.processor = DataProcessor()
+        
+        # UI state
         self.files = []
-        self.cached_data = None
-        self.cached_file_list = []
+        
+        # Apply dark mode theme and setup UI
+        self._setup_dark_theme()
         self.setup_ui()
 
     def _setup_dark_theme(self):
@@ -151,82 +372,23 @@ class MSPPDataPlotter:
         """Clear file list."""
         self.files.clear()
         self.file_listbox.delete(0, tk.END)
-        self.cached_data = None
-        self.cached_file_list = []
-
-    def identify_organism_vectorized(self, series):
-        """Vectorized organism identification - much faster than row-by-row apply."""
-        upper = series.fillna("").astype(str).str.upper()
-        result = pd.Series("Unknown", index=series.index)
-
-        for organism, patterns in self.ORGANISM_PATTERNS.items():
-            mask = upper.str.contains("|".join(patterns), regex=True)
-            result = result.where(~mask, organism)
-
-        return pd.Categorical(result, categories=self.ORGANISMS + ["Unknown"])
-
-    def _get_organism_data(self, file_data, intensity_col, organism) -> pd.Series:
-        """Extract positive numeric intensity data for an organism."""
-        data: pd.Series = pd.to_numeric(
-            file_data[file_data["Organism"] == organism][intensity_col], errors="coerce"
-        )  # type: ignore[assignment]
-        return data[data > 0].dropna()  # type: ignore[return-value]
-
-    def _get_hela_median(self, file_data, intensity_col):
-        """Get HeLa median for normalization, with fallback."""
-        hela_data = self._get_organism_data(file_data, intensity_col, "HeLa")
-        return hela_data.median() if len(hela_data) > 0 else 1.0
+        self.processor.clear_cache()
 
     def load_data(self):
-        """Load data from selected files with caching."""
+        """Load data from selected files."""
         if not self.files:
             messagebox.showerror("Error", "Please add at least one TSV file")
             return None
-
-        # Return cached data if file list unchanged
-        if self.cached_data is not None and self.cached_file_list == self.files:
-            return self.cached_data
-
-        all_data = []
-        self.file_to_raw_column = {}
-
-        for filepath in self.files:
-            try:
-                df = pd.read_csv(filepath, sep="\t", low_memory=False)
-                source_name = Path(filepath).stem
-                df["Source_File"] = source_name
-
-                # Find and map the .raw column
-                raw_cols = [col for col in df.columns if ".raw" in col.lower()]
-                if raw_cols:
-                    self.file_to_raw_column[source_name] = raw_cols[0]
-
-                # Identify organism from protein name column
-                protein_col = next(
-                    (col for col in ["Protein.Names", "Protein.Group"] if col in df.columns), None
-                ) or next((col for col in df.columns if "protein" in col.lower()), None)
-
-                df["Organism"] = (
-                    self.identify_organism_vectorized(df[protein_col]) if protein_col else "Unknown"
-                )
-                all_data.append(df)
-
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to load {Path(filepath).name}:\n{e}")
-                return None
-
-        # Cache the result
-        self.cached_data = pd.concat(all_data, ignore_index=True)
-        self.cached_file_list = self.files.copy()
-        return self.cached_data
+        
+        try:
+            return self.processor.load_data(self.files)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load data:\n{e}")
+            return None
 
     def _create_bar_chart(self, data, ax):
-        """Helper: Create stacked bar chart."""
-        counts = data.groupby(["Source_File", "Organism"]).size().unstack(fill_value=0)
-        org_order = self.ORGANISMS + ["Unknown"]
-        counts = counts.reindex(
-            columns=[col for col in org_order if col in counts.columns], fill_value=0
-        )
+        """Create stacked bar chart visualization."""
+        counts = self.processor.calculate_protein_id_counts(data)
         plot_colors = [self.COLORS[col] for col in counts.columns]
 
         counts.plot(
@@ -246,147 +408,41 @@ class MSPPDataPlotter:
         ax.tick_params(axis="x", rotation=45, labelbottom=True)
         plt.setp(ax.xaxis.get_majorticklabels(), ha="right")
 
-    def _extract_mix_identifier(self, filename):
-        """Extract mix identifier from filename, excluding E25/E100 prefix.
-        
-        For 'report.pg_matrix_E25_30_4_440960_600.tsv', returns '30_4_440960_600'.
-        This ensures E25 and E100 files from the same mix are grouped together.
-        """
-        # Remove E25/E100 prefix first to avoid capturing it in the mix ID
-        cleaned = re.sub(r'E[-_]?\d+[-_]?', '', filename, flags=re.IGNORECASE)
-        
-        # Extract the numeric pattern (e.g., 30_4_440960_600)
-        match = re.search(r'(\d+_\d+_\d+_\d+)', cleaned)
-        if match:
-            return match.group(1)
-        
-        # Fallback: return cleaned filename
-        cleaned = cleaned.replace('report.pg_matrix_', '').replace('.tsv', '')
-        return cleaned if cleaned else filename
-    
-    def _calculate_sample_intensities(self, file_data, source_file, organism):
-        """Calculate HeLa-normalized intensities for all proteins in a single sample.
-        
-        Args:
-            file_data: DataFrame for the sample
-            source_file: Name of the source file
-            organism: 'E.coli' or 'Yeast'
-        
-        Returns:
-            Array of normalized log2 intensities, or None if insufficient data
-        """
-        if source_file not in self.file_to_raw_column:
-            return None
-        
-        intensity_col = self.file_to_raw_column[source_file]
-        
-        org_data = self._get_organism_data(file_data, intensity_col, organism)
-        if len(org_data) == 0:
-            return None
-        
-        hela_median = self._get_hela_median(file_data, intensity_col)
-        normalized = np.log2(org_data / hela_median)
-        
-        # Filter out invalid values
-        intensities = np.array(normalized.values)
-        return intensities[np.isfinite(intensities)]
-
     def _create_sample_comparison_plot(self, data):
         """Create side-by-side box plots showing E25 vs E100 fold changes for each mix."""
-        # Get all sample files
-        sample_files = sorted(data["Source_File"].unique())
-        
-        if len(sample_files) == 0:
-            messagebox.showerror("Error", "No sample files found in data")
-            return False
-        
-        # Group samples by mix identifier
-        mix_groups = {}
-        for source_file in sample_files:
-            mix_id = self._extract_mix_identifier(source_file)
-            if mix_id not in mix_groups:
-                mix_groups[mix_id] = []
-            mix_groups[mix_id].append(source_file)
-        
-        # Sort mixes
-        sorted_mixes = sorted(mix_groups.keys())
-        
-        # Calculate intensities for E25 and E100 separately for each mix
-        ecoli_results = []  # Will store (label, data, mix_id) tuples
-        yeast_results = []
-        mix_boundaries = []  # Track where each mix ends for visual separation
-        current_position = 0
-        
-        for mix_id in sorted_mixes:
-            mix_samples = sorted(mix_groups[mix_id])
-            
-            # Find E25 and E100 files in this mix (case-insensitive, flexible pattern)
-            e25_file = None
-            e100_file = None
-            
-            for source_file in mix_samples:
-                upper = source_file.upper()
-                # Look for E25, E-25, E_25, etc.
-                if re.search(r'E[-_]?25', upper):
-                    e25_file = source_file
-                # Look for E100, E-100, E_100, etc.
-                elif re.search(r'E[-_]?100', upper):
-                    e100_file = source_file
-            
-            if e25_file and e100_file:
-                # Calculate intensities separately for E25 and E100
-                # E.coli
-                e25_ecoli = self._calculate_sample_intensities(
-                    data[data["Source_File"] == e25_file], e25_file, "E.coli"
-                )
-                e100_ecoli = self._calculate_sample_intensities(
-                    data[data["Source_File"] == e100_file], e100_file, "E.coli"
-                )
+        # Delegate data calculation to processor
+        try:
+            comparison_data = self.processor.calculate_sample_comparison_data(data)
+        except ValueError as e:
+            # Handle detailed error with file diagnostics
+            if len(e.args) > 1 and isinstance(e.args[1], dict):
+                error_details = e.args[1]
+                sample_files = error_details['sample_files']
+                sorted_mixes = error_details['sorted_mixes']
+                mix_groups = error_details['mix_groups']
                 
-                # Yeast
-                e25_yeast = self._calculate_sample_intensities(
-                    data[data["Source_File"] == e25_file], e25_file, "Yeast"
-                )
-                e100_yeast = self._calculate_sample_intensities(
-                    data[data["Source_File"] == e100_file], e100_file, "Yeast"
-                )
-                
-                # Add E25 and E100 as separate box plots
-                if e25_ecoli is not None:
-                    ecoli_results.append(("E25", e25_ecoli, mix_id))
-                    current_position += 1
-                if e100_ecoli is not None:
-                    ecoli_results.append(("E100", e100_ecoli, mix_id))
-                    current_position += 1
-                
-                if e25_yeast is not None:
-                    yeast_results.append(("E25", e25_yeast, mix_id))
-                if e100_yeast is not None:
-                    yeast_results.append(("E100", e100_yeast, mix_id))
+                error_msg = "No valid E25/E100 pairs found.\n\n"
+                error_msg += f"Detected {len(sample_files)} files:\n"
+                for sf in sample_files:
+                    error_msg += f"  • {sf}\n"
+                error_msg += f"\n{len(sorted_mixes)} mix group(s):\n"
+                for mix_id, samples in mix_groups.items():
+                    error_msg += f"\n{mix_id}:\n"
+                    for s in samples:
+                        has_e25 = 'YES' if re.search(r'E[-_]?25', s.upper()) else 'NO'
+                        has_e100 = 'YES' if re.search(r'E[-_]?100', s.upper()) else 'NO'
+                        error_msg += f"  - {s}\n"
+                        error_msg += f"    E25: {has_e25}, E100: {has_e100}\n"
+                messagebox.showerror("Error", error_msg)
             else:
-                # Warn about missing pairs but continue
-                if not e25_file or not e100_file:
-                    print(f"Warning: Mix '{mix_id}' missing {'E25' if not e25_file else 'E100'} file. Skipping.")
-            
-            # Mark boundary after this mix (even if no data)
-            if current_position > 0:
-                mix_boundaries.append(current_position)
-        
-        if not ecoli_results and not yeast_results:
-            error_msg = "No valid E25/E100 pairs found.\n\n"
-            error_msg += f"Detected {len(sample_files)} files:\n"
-            for sf in sample_files:
-                error_msg += f"  • {sf}\n"
-            error_msg += f"\n{len(sorted_mixes)} mix group(s):\n"
-            for mix_id, samples in mix_groups.items():
-                error_msg += f"\n{mix_id}:\n"
-                for s in samples:
-                    has_e25 = 'YES' if re.search(r'E[-_]?25', s.upper()) else 'NO'
-                    has_e100 = 'YES' if re.search(r'E[-_]?100', s.upper()) else 'NO'
-                    error_msg += f"  - {s}\n"
-                    error_msg += f"    E25: {has_e25}, E100: {has_e100}\n"
-            messagebox.showerror("Error", error_msg)
+                messagebox.showerror("Error", str(e))
             return False
+        
+        # Unpack prepared data
+        ecoli_results = comparison_data['ecoli_results']
+        yeast_results = comparison_data['yeast_results']
+        mix_boundaries = comparison_data['mix_boundaries']
+        sorted_mixes = comparison_data['sorted_mixes']
         
         # Create the plot
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
