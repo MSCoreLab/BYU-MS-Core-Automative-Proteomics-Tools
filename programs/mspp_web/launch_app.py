@@ -36,18 +36,10 @@ if __name__ == '__main__':
     time.sleep(2)
     
     print("✅ Backend ready on http://localhost:5000")
-    print("🎨 Opening application in app mode...\n")
+    print("🎨 Opening application in your default browser...\n")
     
-    # Open in Chrome app mode (looks like native app - no browser UI)
-    chrome_path = "C:/Program Files/Google/Chrome/Application/chrome.exe"
-    if Path(chrome_path).exists():
-        webbrowser.register('chrome-app', None, webbrowser.BackgroundBrowser(chrome_path))
-        webbrowser.get('chrome-app').open('http://localhost:5000', new=1, autoraise=True)
-        import subprocess
-        subprocess.Popen([chrome_path, '--app=http://localhost:5000'])
-    else:
-        # Fallback to default browser
-        webbrowser.open('http://localhost:5000')
+    # Open in default browser only
+    webbrowser.open('http://localhost:5000')
     
     print("=" * 60)
     print("✨ Application is running!")
