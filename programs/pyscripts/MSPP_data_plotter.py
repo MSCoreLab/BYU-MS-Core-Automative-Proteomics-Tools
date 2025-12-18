@@ -348,6 +348,26 @@ class PlotGenerator:
             linewidth=0.5,
             alpha=0.8,
         )
+        
+        # Add count labels on each bar segment
+        for i, sample in enumerate(counts.index):
+            y_offset = 0
+            for organism in counts.columns:
+                count = counts.loc[sample, organism]
+                if count > 0:  # Only label non-zero segments
+                    # Calculate center position of this segment
+                    bar_height = count
+                    y_pos = y_offset + bar_height / 2
+                    
+                    # Add text label
+                    ax.text(
+                        i, y_pos, str(int(count)),
+                        ha='center', va='center',
+                        fontsize=9, fontweight='bold',
+                        color='white'
+                    )
+                    y_offset += bar_height
+        
         ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
         ax.set_ylabel("Number of Protein IDs", fontsize=12, fontweight="bold")
         ax.set_title("Protein ID Counts by Organism", fontsize=14, fontweight="bold")
