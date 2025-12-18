@@ -12,6 +12,7 @@ import base64
 import io
 import re
 import os
+import logging
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -585,8 +586,11 @@ def generate_sample_comparison():
         return jsonify({'image': img_base64})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logging.exception("Unexpected error while generating sample comparison plot")
+        return jsonify({
+            'error': 'An internal error occurred while generating the sample comparison plot.'
+        }), 500
 
 
 if __name__ == '__main__':
