@@ -11,6 +11,7 @@ import tempfile
 import base64
 import io
 import re
+import os
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -589,4 +590,6 @@ def generate_sample_comparison():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    debug_env = os.getenv("FLASK_DEBUG", "").lower()
+    debug_mode = debug_env in {"1", "true", "yes", "on"}
+    app.run(debug=debug_mode, port=5000)
