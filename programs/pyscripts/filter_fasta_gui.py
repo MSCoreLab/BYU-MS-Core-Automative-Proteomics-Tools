@@ -18,234 +18,302 @@ Example:
   If the pattern is '##', entries like:
     >##gnl|ECOLI|ABC-MONOMER ##L-methionine ...
   will be removed from the output.
+
+Architecture:
+  - FastaEntry: Data class representing a single FASTA entry
+  - FastaReader: Iterator for reading FASTA files
+  - PatternMatcher: Abstract base class for matching strategies
+    - SubstringMatcher: Substring-based matching
+    - RegexMatcher: Regular expression matching
+  - FastaFilter: Handles filtering operations with statistics
+  - DeduplicationStrategy: Abstract base class for deduplication
+    - NoDuplication: No deduplication
+    - HeaderDeduplication: Deduplicate by header
+    - SequenceDeduplication: Deduplicate by sequence hash
+  - FastaMerger: Handles merge operations with statistics
+  - App: Tkinter GUI application
 """
 
 import re
 import hashlib
 from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Iterator
+from abc import ABC, abstractmethod
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from typing import Optional, Iterator
 
 
-def iterate_fasta_entries(file_path: Path) -> Iterator[tuple[str, list[str]]]:
-    """
-    Yield (header, sequence_lines) tuples from a FASTA file.
+@dataclass
+class FastaEntry:
+    """Represents a single FASTA entry with header and sequence."""
+    header: str
+    sequence_lines: list[str]
+    
+    @property
+    def header_text(self) -> str:
+        """Return header without leading '>'."""
+        return self.header.lstrip(">")
+    
+    @property
+    def sequence(self) -> str:
+        """Return joined sequence."""
+        return "".join(self.sequence_lines)
+    
+    @property
+    def sequence_hash(self) -> str:
+        """Return MD5 hash of sequence for deduplication."""
+        return hashlib.md5(self.sequence.encode(), usedforsecurity=False).hexdigest()
+    
+    def write_to_file(self, file_handle, prefix: str = ""):
+        """Write entry to an open file handle with optional prefix."""
+        if prefix:
+            file_handle.write(f">{prefix}{self.header_text}\n")
+        else:
+            file_handle.write(f"{self.header}\n")
+        
+        for line in self.sequence_lines:
+            file_handle.write(f"{line}\n")
 
-    Parameters
-    ----------
-    file_path : Path
-        Path to the FASTA file.
 
-    Yields
-    ------
-    tuple[str, list[str]]
-        A tuple of (header_line, list_of_sequence_lines).
-        The header includes the leading '>'.
-    """
-    with file_path.open("r", encoding="utf-8", errors="replace") as f:
-        header = None
-        seq_lines = []
-        for line in f:
-            line = line.rstrip("\n")
-            if line.startswith(">"):
-                if header is not None:
-                    yield header, seq_lines
-                header = line
-                seq_lines = []
-            elif header is not None:
-                seq_lines.append(line)
-        if header is not None:
-            yield header, seq_lines
+class FastaReader:
+    """Reads and iterates over FASTA entries from a file."""
+    
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+    
+    def __iter__(self) -> Iterator[FastaEntry]:
+        """Yield FastaEntry objects from the file."""
+        with self.file_path.open("r", encoding="utf-8", errors="replace") as f:
+            header = None
+            seq_lines = []
+            
+            for line in f:
+                line = line.rstrip("\n")
+                if line.startswith(">"):
+                    if header is not None:
+                        yield FastaEntry(header, seq_lines)
+                    header = line
+                    seq_lines = []
+                elif header is not None:
+                    seq_lines.append(line)
+            
+            if header is not None:
+                yield FastaEntry(header, seq_lines)
 
 
-def filter_fasta(
-    input_path: Path,
-    output_path: Path,
-    patterns,
-    use_regex: bool = False,
-    case_sensitive: bool = False,
-    save_report_path: Optional[Path] = None,
-):
-    """
-    Read a FASTA, writing only entries whose headers DO NOT match any of the patterns.
+class PatternMatcher(ABC):
+    """Abstract base class for pattern matching strategies."""
+    
+    @abstractmethod
+    def matches(self, text: str) -> bool:
+        """Check if text matches any pattern."""
+        pass
 
-    Parameters
-    ----------
-    input_path : Path
-        Source FASTA file.
-    output_path : Path
-        Destination FASTA file (will be overwritten).
-    patterns : list[str]
-        List of patterns. If use_regex=False, they are treated as substrings.
-        If use_regex=True, they are compiled as regular expressions.
-    use_regex : bool
-        If True, treat patterns as regex.
-    case_sensitive : bool
-        If False, perform case-insensitive matching.
-    save_report_path : Path | None
-        If provided, write a report listing removed headers.
-    """
-    if not patterns:
-        raise ValueError("Please provide at least one pattern to match.")
 
-    # Prepare matchers
-    flags = 0 if case_sensitive else re.IGNORECASE
-    if use_regex:
+class SubstringMatcher(PatternMatcher):
+    """Matches patterns as substrings."""
+    
+    def __init__(self, patterns: list[str], case_sensitive: bool = False):
+        self.patterns = patterns if case_sensitive else [p.lower() for p in patterns]
+        self.case_sensitive = case_sensitive
+    
+    def matches(self, text: str) -> bool:
+        normalized_text = text if self.case_sensitive else text.lower()
+        return any(pattern in normalized_text for pattern in self.patterns)
+
+
+class RegexMatcher(PatternMatcher):
+    """Matches patterns as regular expressions."""
+    
+    def __init__(self, patterns: list[str], case_sensitive: bool = False):
+        flags = 0 if case_sensitive else re.IGNORECASE
         try:
-            regexes = [re.compile(p, flags) for p in patterns]
+            self.regexes = [re.compile(p, flags) for p in patterns]
         except re.error as e:
             raise ValueError(f"Invalid regular expression: {e}") from e
+    
+    def matches(self, text: str) -> bool:
+        return any(regex.search(text) for regex in self.regexes)
 
-        def matches(header: str) -> bool:
-            return any(rx.search(header) for rx in regexes)
 
-    else:
-        # Normalize case if needed
-        pats = patterns if case_sensitive else [p.lower() for p in patterns]
+@dataclass
+class FilterStats:
+    """Statistics from filtering operation."""
+    kept: int = 0
+    removed: int = 0
+    removed_headers: list[str] = field(default_factory=list)
 
-        def matches(header: str) -> bool:
-            h = header if case_sensitive else header.lower()
-            return any(p in h for p in pats)
 
-    kept = 0
-    removed = 0
-    removed_headers = []
+@dataclass
+class MergeStats:
+    """Statistics from merge operation."""
+    total_entries: int = 0
+    written_entries: int = 0
+    skipped_duplicates: int = 0
+    file_stats: dict[str, tuple[int, int]] = field(default_factory=dict)
 
-    with output_path.open("w", encoding="utf-8") as fout:
-        for header, seq_lines in iterate_fasta_entries(input_path):
-            header_text = header[1:]  # drop leading '>'
-            if matches(header_text):
-                removed += 1
-                removed_headers.append(header)
-            else:
-                kept += 1
-                fout.write(header + "\n")
-                for seq_line in seq_lines:
-                    fout.write(seq_line + "\n")
 
-    if save_report_path is not None:
-        with save_report_path.open("w", encoding="utf-8") as rep:
+class FastaFilter:
+    """Handles FASTA filtering operations."""
+    
+    def __init__(self, patterns: list[str], use_regex: bool = False, case_sensitive: bool = False):
+        if not patterns:
+            raise ValueError("Please provide at least one pattern to match.")
+        
+        self.matcher = (
+            RegexMatcher(patterns, case_sensitive) if use_regex 
+            else SubstringMatcher(patterns, case_sensitive)
+        )
+        self.patterns = patterns
+        self.use_regex = use_regex
+        self.case_sensitive = case_sensitive
+    
+    def filter_file(self, input_path: Path, output_path: Path) -> FilterStats:
+        """Filter FASTA file, removing entries matching patterns."""
+        stats = FilterStats()
+        reader = FastaReader(input_path)
+        
+        with output_path.open("w", encoding="utf-8") as fout:
+            for entry in reader:
+                if self.matcher.matches(entry.header_text):
+                    stats.removed += 1
+                    stats.removed_headers.append(entry.header)
+                else:
+                    stats.kept += 1
+                    entry.write_to_file(fout)
+        
+        return stats
+    
+    def save_report(self, input_path: Path, output_path: Path, stats: FilterStats, report_path: Path):
+        """Save filtering report to file."""
+        with report_path.open("w", encoding="utf-8") as rep:
             rep.write(f"Input:  {input_path}\n")
             rep.write(f"Output: {output_path}\n")
-            rep.write(f"Patterns: {patterns}\n")
-            rep.write(f"Regex: {use_regex}\n")
-            rep.write(f"Case sensitive: {case_sensitive}\n\n")
-            rep.write(f"Kept entries:    {kept}\n")
-            rep.write(f"Removed entries: {removed}\n\n")
-            if removed_headers:
+            rep.write(f"Patterns: {self.patterns}\n")
+            rep.write(f"Regex: {self.use_regex}\n")
+            rep.write(f"Case sensitive: {self.case_sensitive}\n\n")
+            rep.write(f"Kept entries:    {stats.kept}\n")
+            rep.write(f"Removed entries: {stats.removed}\n\n")
+            if stats.removed_headers:
                 rep.write("Removed headers:\n")
-                for h in removed_headers:
-                    rep.write(h + "\n")
-
-    return kept, removed
+                for header in stats.removed_headers:
+                    rep.write(f"{header}\n")
 
 
-def merge_fasta_files(
-    input_paths: list[Path],
-    output_path: Path,
-    deduplicate: str = "none",
-    add_prefix: bool = False,
-    save_report_path: Optional[Path] = None,
-):
-    """
-    Merge multiple FASTA files into one.
+class DeduplicationStrategy(ABC):
+    """Abstract base class for deduplication strategies."""
+    
+    @abstractmethod
+    def is_duplicate(self, entry: FastaEntry) -> bool:
+        """Check if entry is a duplicate."""
+        pass
 
-    Parameters
-    ----------
-    input_paths : list[Path]
-        List of source FASTA files.
-    output_path : Path
-        Destination FASTA file (will be overwritten).
-    deduplicate : str
-        Deduplication mode:
-        - "none": Keep all entries from all files
-        - "header": Remove entries with duplicate headers (first occurrence kept)
-        - "sequence": Remove entries with duplicate sequences (first occurrence kept)
-    add_prefix : bool
-        If True, add a prefix to headers indicating source file (e.g., "[file1]").
-    save_report_path : Path | None
-        If provided, write a report with merge statistics.
-    """
-    if not input_paths:
-        raise ValueError("Please provide at least one input file.")
 
-    seen_headers = set()
-    seen_sequence_hashes = set()  # Store hashes instead of full sequences
-    total_entries = 0
-    written_entries = 0
-    skipped_duplicates = 0
-    file_stats = {}  # file -> (total, written)
+class NoDuplication(DeduplicationStrategy):
+    """No deduplication - keep all entries."""
+    
+    def is_duplicate(self, entry: FastaEntry) -> bool:
+        return False
 
-    with output_path.open("w", encoding="utf-8") as fout:
-        for input_path in input_paths:
-            if not input_path.exists():
-                raise FileNotFoundError(f"Input file not found: {input_path}")
 
-            file_total = 0
-            file_written = 0
+class HeaderDeduplication(DeduplicationStrategy):
+    """Deduplicate by header text."""
+    
+    def __init__(self):
+        self.seen_headers = set()
+    
+    def is_duplicate(self, entry: FastaEntry) -> bool:
+        header_text = entry.header_text
+        if header_text in self.seen_headers:
+            return True
+        self.seen_headers.add(header_text)
+        return False
 
-            # Get a short prefix from filename (without extension)
-            prefix = f"[{input_path.stem}]" if add_prefix else ""
 
-            for header, seq_lines in iterate_fasta_entries(input_path):
-                file_total += 1
-                total_entries += 1
+class SequenceDeduplication(DeduplicationStrategy):
+    """Deduplicate by sequence hash."""
+    
+    def __init__(self):
+        self.seen_hashes = set()
+    
+    def is_duplicate(self, entry: FastaEntry) -> bool:
+        seq_hash = entry.sequence_hash
+        if seq_hash in self.seen_hashes:
+            return True
+        self.seen_hashes.add(seq_hash)
+        return False
 
-                # Check for duplicates
-                should_write = True
 
-                if deduplicate == "header":
-                    header_text = header.lstrip(">")
-                    if header_text in seen_headers:
-                        should_write = False
-                        skipped_duplicates += 1
-                    else:
-                        seen_headers.add(header_text)
-
-                elif deduplicate == "sequence":
-                    # Use hash for memory-efficient deduplication
-                    seq = "".join(seq_lines)
-                    seq_hash = hashlib.md5(seq.encode(), usedforsecurity=False).hexdigest()
-                    if seq_hash in seen_sequence_hashes:
-                        should_write = False
-                        skipped_duplicates += 1
-                    else:
-                        seen_sequence_hashes.add(seq_hash)
-
-                if should_write:
-                    # Write header with optional prefix
-                    if prefix:
-                        fout.write(f">{prefix}{header.lstrip('>')}\n")
-                    else:
-                        fout.write(f"{header}\n")
-
-                    # Write sequence lines
-                    for seq_line in seq_lines:
-                        fout.write(f"{seq_line}\n")
-
-                    written_entries += 1
-                    file_written += 1
-
-            file_stats[input_path.name] = (file_total, file_written)
-
-    # Generate report if requested
-    if save_report_path is not None:
-        with save_report_path.open("w", encoding="utf-8") as rep:
+class FastaMerger:
+    """Handles FASTA merging operations."""
+    
+    DEDUP_STRATEGIES = {
+        "none": NoDuplication,
+        "header": HeaderDeduplication,
+        "sequence": SequenceDeduplication,
+    }
+    
+    def __init__(self, deduplicate: str = "none", add_prefix: bool = False):
+        if deduplicate not in self.DEDUP_STRATEGIES:
+            raise ValueError(f"Invalid deduplication mode: {deduplicate}")
+        
+        self.dedup_strategy = self.DEDUP_STRATEGIES[deduplicate]()
+        self.add_prefix = add_prefix
+        self.deduplicate_mode = deduplicate
+    
+    def merge_files(self, input_paths: list[Path], output_path: Path) -> MergeStats:
+        """Merge multiple FASTA files into one."""
+        if not input_paths:
+            raise ValueError("Please provide at least one input file.")
+        
+        stats = MergeStats()
+        
+        with output_path.open("w", encoding="utf-8") as fout:
+            for input_path in input_paths:
+                if not input_path.exists():
+                    raise FileNotFoundError(f"Input file not found: {input_path}")
+                
+                file_stats = self._process_file(input_path, fout, stats)
+                stats.file_stats[input_path.name] = file_stats
+        
+        return stats
+    
+    def _process_file(self, input_path: Path, output_handle, stats: MergeStats) -> tuple[int, int]:
+        """Process a single file during merge."""
+        file_total = 0
+        file_written = 0
+        prefix = f"[{input_path.stem}]" if self.add_prefix else ""
+        
+        reader = FastaReader(input_path)
+        for entry in reader:
+            file_total += 1
+            stats.total_entries += 1
+            
+            if self.dedup_strategy.is_duplicate(entry):
+                stats.skipped_duplicates += 1
+            else:
+                entry.write_to_file(output_handle, prefix)
+                stats.written_entries += 1
+                file_written += 1
+        
+        return file_total, file_written
+    
+    def save_report(self, output_path: Path, stats: MergeStats, report_path: Path):
+        """Save merge report to file."""
+        with report_path.open("w", encoding="utf-8") as rep:
             rep.write("FASTA Merge Report\n")
             rep.write("=" * 50 + "\n\n")
             rep.write(f"Output file: {output_path}\n")
-            rep.write(f"Deduplication mode: {deduplicate}\n")
-            rep.write(f"Add file prefix: {add_prefix}\n\n")
-            rep.write(f"Total entries processed: {total_entries}\n")
-            rep.write(f"Total entries written: {written_entries}\n")
-            rep.write(f"Duplicate entries skipped: {skipped_duplicates}\n\n")
+            rep.write(f"Deduplication mode: {self.deduplicate_mode}\n")
+            rep.write(f"Add file prefix: {self.add_prefix}\n\n")
+            rep.write(f"Total entries processed: {stats.total_entries}\n")
+            rep.write(f"Total entries written: {stats.written_entries}\n")
+            rep.write(f"Duplicate entries skipped: {stats.skipped_duplicates}\n\n")
             rep.write("Per-file statistics:\n")
             rep.write("-" * 50 + "\n")
-            for filename, (total, written) in file_stats.items():
+            for filename, (total, written) in stats.file_stats.items():
                 rep.write(f"{filename}: {total} entries, {written} written\n")
-
-    return written_entries, skipped_duplicates
 
 
 class App(tk.Tk):
@@ -582,21 +650,25 @@ class App(tk.Tk):
                 return
 
             patterns = self._parse_patterns(self.patterns_var.get().strip())
-            report_path = None
-            if self.report_var.get():
-                report_path = output_path.with_suffix(output_path.suffix + ".removed.txt")
-
-            kept, removed = filter_fasta(
-                input_path=input_path,
-                output_path=output_path,
+            
+            # Create filter and process file
+            fasta_filter = FastaFilter(
                 patterns=patterns,
                 use_regex=self.regex_var.get(),
-                case_sensitive=self.case_var.get(),
-                save_report_path=report_path,
+                case_sensitive=self.case_var.get()
             )
-            msg = f"Done!\nKept entries: {kept}\nRemoved entries: {removed}"
-            if report_path:
+            
+            stats = fasta_filter.filter_file(input_path, output_path)
+            
+            # Save report if requested
+            if self.report_var.get():
+                report_path = output_path.with_suffix(output_path.suffix + ".removed.txt")
+                fasta_filter.save_report(input_path, output_path, stats, report_path)
+                msg = f"Done!\nKept entries: {stats.kept}\nRemoved entries: {stats.removed}"
                 msg += f"\n\nReport saved to:\n{report_path}"
+            else:
+                msg = f"Done!\nKept entries: {stats.kept}\nRemoved entries: {stats.removed}"
+            
             messagebox.showinfo("FASTA Header Filter", msg)
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -612,23 +684,27 @@ class App(tk.Tk):
                 messagebox.showerror("Error", "Please choose an output FASTA file path.")
                 return
 
-            report_path = None
+            # Create merger and process files
+            merger = FastaMerger(
+                deduplicate=self.dedupe_var.get(),
+                add_prefix=self.prefix_var.get()
+            )
+            
+            stats = merger.merge_files(self.merge_files, output_path)
+            
+            # Save report if requested
             if self.merge_report_var.get():
                 report_path = output_path.with_suffix(output_path.suffix + ".merge_report.txt")
-
-            written, skipped = merge_fasta_files(
-                input_paths=self.merge_files,
-                output_path=output_path,
-                deduplicate=self.dedupe_var.get(),
-                add_prefix=self.prefix_var.get(),
-                save_report_path=report_path,
-            )
-
-            msg = f"Done!\nTotal entries written: {written}"
-            if skipped > 0:
-                msg += f"\nDuplicate entries skipped: {skipped}"
-            if report_path:
+                merger.save_report(output_path, stats, report_path)
+                msg = f"Done!\nTotal entries written: {stats.written_entries}"
+                if stats.skipped_duplicates > 0:
+                    msg += f"\nDuplicate entries skipped: {stats.skipped_duplicates}"
                 msg += f"\n\nReport saved to:\n{report_path}"
+            else:
+                msg = f"Done!\nTotal entries written: {stats.written_entries}"
+                if stats.skipped_duplicates > 0:
+                    msg += f"\nDuplicate entries skipped: {stats.skipped_duplicates}"
+            
             messagebox.showinfo("FASTA Merge", msg)
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -655,20 +731,26 @@ def main():
     args = parser.parse_args()
 
     if args.input and args.output and args.patterns:
-        kept, removed = filter_fasta(
-            input_path=Path(args.input),
-            output_path=Path(args.output),
-            patterns=[p.strip() for p in args.patterns.split(",") if p.strip()],
+        patterns = [p.strip() for p in args.patterns.split(",") if p.strip()]
+        input_path = Path(args.input)
+        output_path = Path(args.output)
+        
+        # Create filter and process
+        fasta_filter = FastaFilter(
+            patterns=patterns,
             use_regex=args.regex,
-            case_sensitive=args.case,
-            save_report_path=(
-                Path(args.output).with_suffix(Path(args.output).suffix + ".removed.txt")
-                if args.report
-                else None
-            ),
+            case_sensitive=args.case
         )
-        print(f"Kept entries: {kept}")
-        print(f"Removed entries: {removed}")
+        
+        stats = fasta_filter.filter_file(input_path, output_path)
+        
+        # Save report if requested
+        if args.report:
+            report_path = output_path.with_suffix(output_path.suffix + ".removed.txt")
+            fasta_filter.save_report(input_path, output_path, stats, report_path)
+        
+        print(f"Kept entries: {stats.kept}")
+        print(f"Removed entries: {stats.removed}")
     else:
         app = App()
         app.mainloop()
