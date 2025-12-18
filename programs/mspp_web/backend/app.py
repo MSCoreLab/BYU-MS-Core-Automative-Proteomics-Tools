@@ -10,6 +10,7 @@ from pathlib import Path
 import tempfile
 import base64
 import io
+import re
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -23,76 +24,77 @@ CORS(app)  # Enable CORS for React dev server
 plt.style.use('dark_background')
 
 
-class MSPPDataProcessor:
-    """Core data processing logic extracted from GUI version."""
+class DataProcessor:
+    """Handles all data loading, processing, and calculation logic."""
     
-    ORGANISMS = ['HeLa', 'E.coli', 'Yeast']
-    COLORS = {'HeLa': '#9b59b6', 'E.coli': '#e67e22', 'Yeast': '#16a085', 'Unknown': '#95a5a6'}
-    
+    # Class-level constants
+    ORGANISMS = ["HeLa", "E.coli", "Yeast"]
     ORGANISM_PATTERNS = {
-        'HeLa': ['_HUMAN', 'HOMO_SAPIENS'],
-        'E.coli': ['_ECOLI', '_ECOL', '_ECO2', '_ECO5', '_ECO7', '_SHIF', '_SHIB', '_SHIS', 'ESCHERICHIA'],
-        'Yeast': ['_YEAST', 'SACCHAROMYCES', 'CEREVISIAE']
+        "HeLa": ["_HUMAN", "HOMO_SAPIENS"],
+        "E.coli": [
+            "_ECOLI", "_ECOL", "_ECO2", "_ECO5", "_ECO7",
+            "_SHIF", "_SHIB", "_SHIS", "ESCHERICHIA",
+        ],
+        "Yeast": ["_YEAST", "SACCHAROMYCES", "CEREVISIAE"],
     }
     
     def __init__(self):
         self.file_to_raw_column = {}
-        self._loaded_data = None
-        self._loaded_files = None
-    
-    def _get_cache_key(self, file_paths):
-        """Generate cache key from sorted file paths."""
-        return tuple(sorted(file_paths))
+        self.cached_data = None
+        self.cached_file_list = []
     
     def identify_organism_vectorized(self, series):
-        """Vectorized organism identification."""
-        upper = series.fillna('').astype(str).str.upper()
-        result = pd.Series('Unknown', index=series.index)
-        
+        """Vectorized organism identification - much faster than row-by-row apply."""
+        upper = series.fillna("").astype(str).str.upper()
+        result = pd.Series("Unknown", index=series.index)
+
         for organism, patterns in self.ORGANISM_PATTERNS.items():
-            mask = upper.str.contains('|'.join(patterns), regex=True)
+            mask = upper.str.contains("|".join(patterns), regex=True)
             result = result.where(~mask, organism)
-        
-        return pd.Categorical(result, categories=self.ORGANISMS + ['Unknown'])
+
+        return pd.Categorical(result, categories=self.ORGANISMS + ["Unknown"])
     
-    def load_tsv_files(self, file_paths):
-        """Load and process TSV files with caching."""
-        # Check if we can use cached data
-        cache_key = self._get_cache_key(file_paths)
-        if self._loaded_files == cache_key and self._loaded_data is not None:
-            return self._loaded_data
+    def load_data(self, file_paths):
+        """Load data from selected files with caching."""
+        if not file_paths:
+            raise ValueError("No files provided")
         
-        # Reset file_to_raw_column mapping for new dataset
-        self.file_to_raw_column = {}
+        # Return cached data if file list unchanged
+        if self.cached_data is not None and self.cached_file_list == file_paths:
+            return self.cached_data
+
         all_data = []
-        
+        self.file_to_raw_column = {}
+
         for filepath in file_paths:
-            # Use low_memory=False and specify dtypes for common columns to speed up parsing
-            df = pd.read_csv(filepath, sep='\t', low_memory=False)
+            df = pd.read_csv(filepath, sep="\t", low_memory=False)
             source_name = Path(filepath).stem
-            df['Source_File'] = source_name
-            
+            df["Source_File"] = source_name
+
             # Find and map the .raw column
-            raw_cols = [col for col in df.columns if '.raw' in col.lower()]
+            raw_cols = [col for col in df.columns if ".raw" in col.lower()]
             if raw_cols:
                 self.file_to_raw_column[source_name] = raw_cols[0]
-            
+
             # Identify organism from protein name column
-            protein_col = next((col for col in ['Protein.Names', 'Protein.Group'] 
-                               if col in df.columns), None) or \
-                          next((col for col in df.columns if 'protein' in col.lower()), None)
-            
-            if protein_col:
-                df['Organism'] = self.identify_organism_vectorized(df[protein_col])
-            else:
-                df['Organism'] = 'Unknown'
+            protein_col = next(
+                (col for col in ["Protein.Names", "Protein.Group"] if col in df.columns), None
+            ) or next((col for col in df.columns if "protein" in col.lower()), None)
+
+            df["Organism"] = (
+                self.identify_organism_vectorized(df[protein_col]) if protein_col else "Unknown"
+            )
             all_data.append(df)
-        
+
         # Cache the result
-        self._loaded_data = pd.concat(all_data, ignore_index=True)
-        self._loaded_files = cache_key
-        
-        return self._loaded_data
+        self.cached_data = pd.concat(all_data, ignore_index=True)
+        self.cached_file_list = file_paths.copy()
+        return self.cached_data
+    
+    def clear_cache(self):
+        """Clear cached data."""
+        self.cached_data = None
+        self.cached_file_list = []
     
     def _get_organism_data(self, file_data, intensity_col, organism):
         """Extract positive numeric intensity data for an organism."""
@@ -110,14 +112,13 @@ class MSPPDataProcessor:
     def _extract_mix_identifier(self, filename):
         """Extract mix identifier from filename, excluding E25/E100 prefix.
         
-        For 'report.pg_matrix_E25_30_4_440960_600.tsv', returns '30_4_440960_600'.
+        For 'report.pg_matrix_E25_30_4_440960_800.tsv', returns '30_4_440960_800'.
         This ensures E25 and E100 files from the same mix are grouped together.
         """
-        import re
         # Remove E25/E100 prefix first to avoid capturing it in the mix ID
         cleaned = re.sub(r'E[-_]?\d+[-_]?', '', filename, flags=re.IGNORECASE)
         
-        # Extract the numeric pattern (e.g., 30_4_440960_600)
+        # Extract the numeric pattern (e.g., 30_4_440960_800)
         match = re.search(r'(\d+_\d+_\d+_\d+)', cleaned)
         if match:
             return match.group(1)
@@ -126,64 +127,106 @@ class MSPPDataProcessor:
         cleaned = cleaned.replace('report.pg_matrix_', '').replace('.tsv', '')
         return cleaned if cleaned else filename
     
-    def _calculate_sample_intensities(self, file_data, source_file, organism):
-        """Calculate HeLa-normalized intensities for all proteins in a single sample.
+    def _calculate_consensus_fold_changes(self, data, e25_file, e100_file, organism):
+        """Calculate log2 fold changes for consensus proteins present in BOTH samples.
         
         Args:
-            file_data: DataFrame for the sample
-            source_file: Name of the source file
+            data: Full DataFrame containing both samples
+            e25_file: E25 sample file name
+            e100_file: E100 sample file name
             organism: 'E.coli' or 'Yeast'
         
         Returns:
-            Array of normalized log2 intensities, or None if insufficient data
+            Tuple of (e25_log2_values, e100_log2_values) for consensus proteins only
         """
-        if source_file not in self.file_to_raw_column:
-            return None
+        if e25_file not in self.file_to_raw_column or e100_file not in self.file_to_raw_column:
+            return None, None
         
-        intensity_col = self.file_to_raw_column[source_file]
+        e25_intensity_col = self.file_to_raw_column[e25_file]
+        e100_intensity_col = self.file_to_raw_column[e100_file]
         
-        org_data = self._get_organism_data(file_data, intensity_col, organism)
-        if len(org_data) == 0:
-            return None
+        # Get data for each sample
+        e25_data = data[data["Source_File"] == e25_file].copy()
+        e100_data = data[data["Source_File"] == e100_file].copy()
         
-        hela_median = self._get_hela_median(file_data, intensity_col)
-        normalized = np.log2(org_data / hela_median)
+        # Filter by organism
+        e25_org = e25_data[e25_data["Organism"] == organism]
+        e100_org = e100_data[e100_data["Organism"] == organism]
+        
+        if len(e25_org) == 0 or len(e100_org) == 0:
+            return None, None
+        
+        # Find consensus proteins: must have valid intensity in BOTH samples
+        protein_col = next(
+            (col for col in ["Protein.Group", "Protein.Ids", "Protein.Names"] if col in e25_org.columns),
+            None
+        )
+        
+        if protein_col is None:
+            return None, None
+        
+        # Get valid proteins from each sample (non-zero, non-NaN intensities)
+        e25_valid = e25_org[
+            (e25_org[e25_intensity_col].notna()) & 
+            (e25_org[e25_intensity_col] > 0)
+        ]
+        e100_valid = e100_org[
+            (e100_org[e100_intensity_col].notna()) & 
+            (e100_org[e100_intensity_col] > 0)
+        ]
+        
+        # Find consensus proteins present in BOTH
+        e25_proteins = set(e25_valid[protein_col])
+        e100_proteins = set(e100_valid[protein_col])
+        consensus_proteins = e25_proteins & e100_proteins
+        
+        if len(consensus_proteins) == 0:
+            return None, None
+        
+        # Filter to consensus proteins only
+        e25_consensus = e25_valid[e25_valid[protein_col].isin(consensus_proteins)]
+        e100_consensus = e100_valid[e100_valid[protein_col].isin(consensus_proteins)]
+        
+        # Calculate HeLa median for each sample
+        e25_hela_median = self._get_hela_median(e25_data, e25_intensity_col)
+        e100_hela_median = self._get_hela_median(e100_data, e100_intensity_col)
+        
+        # Calculate log2 normalized intensities for consensus proteins
+        e25_intensities = e25_consensus[e25_intensity_col]
+        e100_intensities = e100_consensus[e100_intensity_col]
+        
+        e25_normalized = np.log2(e25_intensities / e25_hela_median)
+        e100_normalized = np.log2(e100_intensities / e100_hela_median)
         
         # Filter out invalid values
-        intensities = np.array(normalized.values)
-        return intensities[np.isfinite(intensities)]
+        e25_array = np.array(e25_normalized.values)
+        e100_array = np.array(e100_normalized.values)
+        
+        e25_valid_vals = e25_array[np.isfinite(e25_array)]
+        e100_valid_vals = e100_array[np.isfinite(e100_array)]
+        
+        return e25_valid_vals, e100_valid_vals
     
-    def generate_bar_chart(self, data):
-        """Generate protein ID counts bar chart."""
-        fig, ax = plt.subplots(figsize=(12, 7))
-        
-        counts = data.groupby(['Source_File', 'Organism'], observed=True).size().unstack(fill_value=0)
-        org_order = self.ORGANISMS + ['Unknown']
-        counts = counts.reindex(columns=[col for col in org_order if col in counts.columns], fill_value=0)
-        plot_colors = [self.COLORS[col] for col in counts.columns]
-        
-        counts.plot(kind='bar', stacked=True, ax=ax, color=plot_colors, 
-                   edgecolor='black', linewidth=0.5, alpha=0.8)
-        ax.set_xlabel('Sample', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Number of Protein IDs', fontsize=12, fontweight='bold')
-        ax.set_title('Protein ID Counts by Organism', fontsize=14, fontweight='bold')
-        ax.legend(title='Organism', fontsize=10, loc='upper right')
-        ax.grid(axis='y', alpha=0.3)
-        ax.tick_params(axis='x', rotation=45, labelbottom=True)
-        plt.setp(ax.xaxis.get_majorticklabels(), ha='right')
-        plt.tight_layout()
-        
-        return self._fig_to_base64(fig)
+    def calculate_protein_id_counts(self, data):
+        """Calculate protein ID counts grouped by organism and source file."""
+        counts = data.groupby(["Source_File", "Organism"]).size().unstack(fill_value=0)
+        org_order = self.ORGANISMS + ["Unknown"]
+        counts = counts.reindex(
+            columns=[col for col in org_order if col in counts.columns], fill_value=0
+        )
+        return counts
     
-    def generate_sample_comparison(self, data):
-        """Generate E25 vs E100 intensity comparison plot."""
-        import re
+    def calculate_sample_comparison_data(self, data):
+        """Calculate E25 vs E100 intensity comparison data for all mixes.
         
+        Returns:
+            Dict with 'ecoli_results', 'yeast_results', 'mix_boundaries', 'sorted_mixes'
+        """
         # Get all sample files
-        sample_files = sorted(data['Source_File'].unique())
+        sample_files = sorted(data["Source_File"].unique())
         
         if len(sample_files) == 0:
-            return None
+            raise ValueError("No sample files found in data")
         
         # Group samples by mix identifier
         mix_groups = {}
@@ -195,7 +238,7 @@ class MSPPDataProcessor:
         
         sorted_mixes = sorted(mix_groups.keys())
         
-        # Calculate intensities for E25 and E100 separately
+        # Calculate intensities for E25 and E100 separately for each mix
         ecoli_results = []
         yeast_results = []
         mix_boundaries = []
@@ -216,181 +259,215 @@ class MSPPDataProcessor:
                     e100_file = source_file
             
             if e25_file and e100_file:
-                # E.coli
-                e25_ecoli = self._calculate_sample_intensities(
-                    data[data['Source_File'] == e25_file], e25_file, 'E.coli'
-                )
-                e100_ecoli = self._calculate_sample_intensities(
-                    data[data['Source_File'] == e100_file], e100_file, 'E.coli'
+                # Calculate consensus fold changes for E.coli
+                e25_ecoli, e100_ecoli = self._calculate_consensus_fold_changes(
+                    data, e25_file, e100_file, "E.coli"
                 )
                 
-                # Yeast
-                e25_yeast = self._calculate_sample_intensities(
-                    data[data['Source_File'] == e25_file], e25_file, 'Yeast'
-                )
-                e100_yeast = self._calculate_sample_intensities(
-                    data[data['Source_File'] == e100_file], e100_file, 'Yeast'
+                # Calculate consensus fold changes for Yeast
+                e25_yeast, e100_yeast = self._calculate_consensus_fold_changes(
+                    data, e25_file, e100_file, "Yeast"
                 )
                 
-                if e25_ecoli is not None:
-                    ecoli_results.append(('E25', e25_ecoli, mix_id))
+                # Add E.coli results (both E25 and E100 together since they're matched)
+                if e25_ecoli is not None and e100_ecoli is not None:
+                    ecoli_results.append(("E25", e25_ecoli, mix_id))
                     current_position += 1
-                if e100_ecoli is not None:
-                    ecoli_results.append(('E100', e100_ecoli, mix_id))
+                    ecoli_results.append(("E100", e100_ecoli, mix_id))
                     current_position += 1
                 
-                if e25_yeast is not None:
-                    yeast_results.append(('E25', e25_yeast, mix_id))
-                if e100_yeast is not None:
-                    yeast_results.append(('E100', e100_yeast, mix_id))
+                # Add Yeast results (both E25 and E100 together since they're matched)
+                if e25_yeast is not None and e100_yeast is not None:
+                    yeast_results.append(("E25", e25_yeast, mix_id))
+                    yeast_results.append(("E100", e100_yeast, mix_id))
             
             if current_position > 0:
                 mix_boundaries.append(current_position)
         
         if not ecoli_results and not yeast_results:
-            return None
+            raise ValueError("No valid E25/E100 pairs found")
         
-        # Create the plot
+        return {
+            'ecoli_results': ecoli_results,
+            'yeast_results': yeast_results,
+            'mix_boundaries': mix_boundaries,
+            'sorted_mixes': sorted_mixes
+        }
+    
+
+
+class PlotGenerator:
+    """Handles all matplotlib plotting and visualization logic for web backend."""
+    
+    # Plot color scheme
+    COLORS = {"HeLa": "#9b59b6", "E.coli": "#e67e22", "Yeast": "#16a085", "Unknown": "#95a5a6"}
+    
+    def __init__(self, processor):
+        """Initialize with a DataProcessor instance."""
+        self.processor = processor
+    
+    def create_bar_chart(self, data):
+        """Create and return bar chart as base64 image."""
+        counts = self.processor.calculate_protein_id_counts(data)
+        plot_colors = [self.COLORS[col] for col in counts.columns]
+
+        fig, ax = plt.subplots(figsize=(12, 7))
+        counts.plot(
+            kind="bar",
+            stacked=True,
+            ax=ax,
+            color=plot_colors,
+            edgecolor="black",
+            linewidth=0.5,
+            alpha=0.8,
+        )
+        ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
+        ax.set_ylabel("Number of Protein IDs", fontsize=12, fontweight="bold")
+        ax.set_title("Protein ID Counts by Organism", fontsize=14, fontweight="bold")
+        ax.legend(title="Organism", fontsize=10, loc="upper right")
+        ax.grid(axis="y", alpha=0.3)
+        ax.tick_params(axis="x", rotation=45, labelbottom=True)
+        plt.setp(ax.xaxis.get_majorticklabels(), ha="right")
+        plt.tight_layout()
+        
+        return self._fig_to_base64(fig)
+    
+    def create_sample_comparison_plot(self, data):
+        """Create and return sample comparison plot as base64 image."""
+        # Get prepared data from processor
+        comparison_data = self.processor.calculate_sample_comparison_data(data)
+        
+        ecoli_results = comparison_data['ecoli_results']
+        yeast_results = comparison_data['yeast_results']
+        mix_boundaries = comparison_data['mix_boundaries']
+        sorted_mixes = comparison_data['sorted_mixes']
+        
+        # Create figure with two subplots
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
         
-        # E.coli plot
+        # Plot E.coli comparison
         if ecoli_results:
-            ecoli_labels = [r[0] for r in ecoli_results]
-            ecoli_data = [r[1] for r in ecoli_results]
-            positions = np.arange(1, len(ecoli_data) + 1)
-            
-            bp1 = ax1.boxplot(
-                ecoli_data, positions=positions, widths=0.6,
-                patch_artist=True, showfliers=True, showmeans=True,
-                flierprops=dict(marker='o', markerfacecolor='#e67e22', markersize=3, alpha=0.4, markeredgecolor='none'),
-                meanprops=dict(marker='s', markerfacecolor='white', markeredgecolor='white', markersize=5)
+            self._plot_organism_comparison(
+                ax1, ecoli_results, mix_boundaries, sorted_mixes,
+                title="E.coli Intensity Comparison",
+                colors=("#e67e22", "#3498db"),  # Orange, Blue
+                label_map={"E25": "E25", "E100": "E100"}
             )
-            
-            for i, (patch, label) in enumerate(zip(bp1['boxes'], ecoli_labels)):
-                if label == 'E25':
-                    patch.set_facecolor('#e67e22')
-                else:
-                    patch.set_facecolor('#3498db')
-                patch.set_alpha(0.7)
-                patch.set_edgecolor('white')
-                patch.set_linewidth(1.5)
-            
-            plt.setp(bp1['whiskers'], color='white', linewidth=1.5)
-            plt.setp(bp1['caps'], color='white', linewidth=1.5)
-            plt.setp(bp1['medians'], color='#2c3e50', linewidth=2.5)
-            
-            # Add median annotations
-            for i, intensities in enumerate(ecoli_data):
-                median_val = np.median(intensities)
-                ax1.text(i + 1.35, median_val, f'{median_val:.2f}',
-                        fontsize=9, va='center', color='white', fontweight='bold')
-            
-            # Add visual separators
-            ylim = ax1.get_ylim()
-            prev_boundary = 0
-            for idx, boundary in enumerate(mix_boundaries[:-1]):
-                ax1.axvline(x=boundary + 0.5, color='#555555', linestyle='-', linewidth=2, alpha=0.8)
-                mid_point = (prev_boundary + boundary) / 2 + 0.5
-                if idx < len(sorted_mixes):
-                    ax1.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[idx]}',
-                            ha='center', va='top', fontsize=9, color='#aaaaaa',
-                            bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
-                prev_boundary = boundary
-            
-            if sorted_mixes:
-                mid_point = (prev_boundary + len(ecoli_data)) / 2 + 0.5
-                ax1.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[-1]}',
-                        ha='center', va='top', fontsize=9, color='#aaaaaa',
-                        bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
-            
-            ax1.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9, label='Reference (1:1)')
-            ax1.set_ylabel('Log2 Intensity (HeLa-Normalized)', fontsize=12, fontweight='bold')
-            ax1.set_xlabel('Sample', fontsize=12, fontweight='bold')
-            ax1.set_title('E.coli Intensity Comparison', fontsize=14, fontweight='bold')
-            ax1.set_xticks(positions)
-            ax1.set_xticklabels(ecoli_labels, rotation=0, ha='center', fontsize=10)
-            ax1.grid(axis='y', alpha=0.3)
-            ax1.legend(fontsize=9)
         else:
-            ax1.text(0.5, 0.5, 'No E.coli data', ha='center', va='center', 
+            ax1.text(0.5, 0.5, "No E.coli data", ha="center", va="center",
                     transform=ax1.transAxes, fontsize=14)
         
-        # Yeast plot
+        # Plot Yeast comparison
         if yeast_results:
-            yeast_labels = [r[0] for r in yeast_results]
-            yeast_data = [r[1] for r in yeast_results]
-            positions = np.arange(1, len(yeast_data) + 1)
-            
-            bp2 = ax2.boxplot(
-                yeast_data, positions=positions, widths=0.6,
-                patch_artist=True, showfliers=True, showmeans=True,
-                flierprops=dict(marker='o', markerfacecolor='#16a085', markersize=3, alpha=0.4, markeredgecolor='none'),
-                meanprops=dict(marker='s', markerfacecolor='white', markeredgecolor='white', markersize=5)
+            self._plot_organism_comparison(
+                ax2, yeast_results, mix_boundaries, sorted_mixes,
+                title="Yeast Intensity Comparison",
+                colors=("#16a085", "#9b59b6"),  # Teal, Purple
+                label_map={"E25": "Y150", "E100": "Y75"}
             )
-            
-            for i, (patch, label) in enumerate(zip(bp2['boxes'], yeast_labels)):
-                if label == 'E25':
-                    patch.set_facecolor('#16a085')
-                else:
-                    patch.set_facecolor('#9b59b6')
-                patch.set_alpha(0.7)
-                patch.set_edgecolor('white')
-                patch.set_linewidth(1.5)
-            
-            plt.setp(bp2['whiskers'], color='white', linewidth=1.5)
-            plt.setp(bp2['caps'], color='white', linewidth=1.5)
-            plt.setp(bp2['medians'], color='#2c3e50', linewidth=2.5)
-            
-            # Add median annotations
-            for i, intensities in enumerate(yeast_data):
-                median_val = np.median(intensities)
-                ax2.text(i + 1.35, median_val, f'{median_val:.2f}',
-                        fontsize=9, va='center', color='white', fontweight='bold')
-            
-            # Add visual separators
-            ylim = ax2.get_ylim()
-            prev_boundary = 0
-            for idx, boundary in enumerate(mix_boundaries[:-1]):
-                ax2.axvline(x=boundary + 0.5, color='#555555', linestyle='-', linewidth=2, alpha=0.8)
-                mid_point = (prev_boundary + boundary) / 2 + 0.5
-                if idx < len(sorted_mixes):
-                    ax2.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[idx]}',
-                            ha='center', va='top', fontsize=9, color='#aaaaaa',
-                            bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
-                prev_boundary = boundary
-            
-            if sorted_mixes:
-                mid_point = (prev_boundary + len(yeast_data)) / 2 + 0.5
-                ax2.text(mid_point, ylim[1] * 0.95, f'Mix: {sorted_mixes[-1]}',
-                        ha='center', va='top', fontsize=9, color='#aaaaaa',
-                        bbox=dict(boxstyle='round,pad=0.3', facecolor='#2c2c2c', edgecolor='#555555', alpha=0.8))
-            
-            ax2.axhline(y=0, color='#f39c12', linestyle='--', linewidth=2, alpha=0.9, label='Reference (1:1)')
-            ax2.set_ylabel('Log2 Intensity (HeLa-Normalized)', fontsize=12, fontweight='bold')
-            ax2.set_xlabel('Sample', fontsize=12, fontweight='bold')
-            ax2.set_title('Yeast Intensity Comparison', fontsize=14, fontweight='bold')
-            ax2.set_xticks(positions)
-            ax2.set_xticklabels(yeast_labels, rotation=0, ha='center', fontsize=10)
-            ax2.grid(axis='y', alpha=0.3)
-            ax2.legend(fontsize=9)
         else:
-            ax2.text(0.5, 0.5, 'No Yeast data', ha='center', va='center',
+            ax2.text(0.5, 0.5, "No Yeast data", ha="center", va="center",
                     transform=ax2.transAxes, fontsize=14)
         
-        plt.suptitle('E25 vs E100 Intensity Comparison by Mix (HeLa-Normalized)',
-                    fontsize=15, fontweight='bold', y=0.98)
+        plt.suptitle(
+            "E25 vs E100 Intensity Comparison by Mix (HeLa-Normalized)",
+            fontsize=15,
+            fontweight="bold",
+            y=0.98
+        )
         plt.tight_layout()
         return self._fig_to_base64(fig)
     
-    def _style_boxplot(self, bp):
-        """Apply consistent styling to boxplot elements."""
-        for patch in bp['boxes']:
-            patch.set_facecolor('#5dade2')
+    def _plot_organism_comparison(self, ax, results, mix_boundaries, sorted_mixes, 
+                                   title, colors, label_map):
+        """Helper method to plot box plot comparison for one organism."""
+        # Extract and convert labels
+        original_labels = [r[0] for r in results]
+        display_labels = [label_map.get(lbl, lbl) for lbl in original_labels]
+        data_arrays = [r[1] for r in results]
+        positions = np.arange(1, len(data_arrays) + 1)
+        
+        # Create box plot
+        bp = ax.boxplot(
+            data_arrays,
+            positions=positions,
+            widths=0.6,
+            patch_artist=True,
+            showfliers=True,
+            showmeans=True,
+            flierprops=dict(
+                marker="o", markerfacecolor=colors[0], markersize=3,
+                alpha=0.4, markeredgecolor="none"
+            ),
+            meanprops=dict(
+                marker="s", markerfacecolor="white", markeredgecolor="white", markersize=5
+            ),
+        )
+        
+        # Color boxes based on original label (E25 vs E100)
+        for i, (patch, orig_label) in enumerate(zip(bp["boxes"], original_labels)):
+            color = colors[0] if orig_label == "E25" else colors[1]
+            patch.set_facecolor(color)
             patch.set_alpha(0.7)
-            patch.set_edgecolor('white')
-        for element in ['whiskers', 'caps']:
-            plt.setp(bp[element], color='white', linewidth=1)
-        plt.setp(bp['medians'], color='#2c3e50', linewidth=2)
+            patch.set_edgecolor("white")
+            patch.set_linewidth(1.5)
+        
+        plt.setp(bp["whiskers"], color="white", linewidth=1.5)
+        plt.setp(bp["caps"], color="white", linewidth=1.5)
+        plt.setp(bp["medians"], color="#2c3e50", linewidth=2.5)
+        
+        # Add median value annotations
+        for i, data in enumerate(data_arrays):
+            median_val = np.median(data)
+            ax.text(
+                i + 1.35, median_val, f"{median_val:.2f}",
+                fontsize=9, va="center", color="white", fontweight="bold"
+            )
+        
+        # Add visual separators and mix labels
+        self._add_mix_separators(ax, mix_boundaries, sorted_mixes, len(data_arrays))
+        
+        # Configure axes
+        ax.axhline(y=0, color="#f39c12", linestyle="--", linewidth=2, alpha=0.9, 
+                   label="Reference (1:1)")
+        ax.set_ylabel("Log2 Intensity (HeLa-Normalized)", fontsize=12, fontweight="bold")
+        ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.set_xticks(positions)
+        ax.set_xticklabels(display_labels, rotation=0, ha="center", fontsize=10)
+        ax.grid(axis="y", alpha=0.3)
+        ax.legend(fontsize=9)
+    
+    def _add_mix_separators(self, ax, mix_boundaries, sorted_mixes, total_samples):
+        """Add vertical separator lines and mix labels to plot."""
+        ylim = ax.get_ylim()
+        prev_boundary = 0
+        
+        # Add separators between mixes (but not after the last one)
+        for idx, boundary in enumerate(mix_boundaries[:-1]):
+            ax.axvline(x=boundary + 0.5, color="#555555", linestyle="-", 
+                      linewidth=2, alpha=0.8)
+            
+            # Add mix label
+            mid_point = (prev_boundary + boundary) / 2 + 0.5
+            if idx < len(sorted_mixes):
+                ax.text(
+                    mid_point, ylim[1] * 0.95, f"Mix: {sorted_mixes[idx]}",
+                    ha="center", va="top", fontsize=9, color="#aaaaaa",
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="#2c2c2c", 
+                             edgecolor="#555555", alpha=0.8)
+                )
+            prev_boundary = boundary
+        
+        # Label for last mix
+        if sorted_mixes:
+            mid_point = (prev_boundary + total_samples) / 2 + 0.5
+            ax.text(
+                mid_point, ylim[1] * 0.95, f"Mix: {sorted_mixes[-1]}",
+                ha="center", va="top", fontsize=9, color="#aaaaaa",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#2c2c2c", 
+                         edgecolor="#555555", alpha=0.8)
+            )
     
     def _fig_to_base64(self, fig):
         """Convert matplotlib figure to base64 encoded PNG."""
@@ -402,8 +479,9 @@ class MSPPDataProcessor:
         return img_base64
 
 
-# Global processor instance
-processor = MSPPDataProcessor()
+# Global instances
+processor = DataProcessor()
+plotter = PlotGenerator(processor)
 uploaded_files = {}  # Store uploaded files temporarily
 
 
@@ -467,8 +545,8 @@ def generate_bar_chart():
         return jsonify({'error': 'No files uploaded'}), 400
     
     try:
-        data = processor.load_tsv_files(list(uploaded_files.values()))
-        img_base64 = processor.generate_bar_chart(data)
+        data = processor.load_data(list(uploaded_files.values()))
+        img_base64 = plotter.create_bar_chart(data)
         return jsonify({'image': img_base64})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -481,11 +559,11 @@ def generate_sample_comparison():
         return jsonify({'error': 'No files uploaded'}), 400
     
     try:
-        data = processor.load_tsv_files(list(uploaded_files.values()))
-        img_base64 = processor.generate_sample_comparison(data)
-        if img_base64 is None:
-            return jsonify({'error': 'No valid E25/E100 pairs found'}), 400
+        data = processor.load_data(list(uploaded_files.values()))
+        img_base64 = plotter.create_sample_comparison_plot(data)
         return jsonify({'image': img_base64})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
