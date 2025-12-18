@@ -570,8 +570,11 @@ def generate_bar_chart():
         data = processor.load_data(list(uploaded_files.values()))
         img_base64 = plotter.create_bar_chart(data)
         return jsonify({'image': img_base64})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logging.exception("Unexpected error while generating bar chart")
+        return jsonify({
+            'error': 'An internal error occurred while generating the bar chart.'
+        }), 500
 
 
 @app.route('/api/plot/sample-comparison', methods=['POST'])
