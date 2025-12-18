@@ -585,7 +585,13 @@ def generate_sample_comparison():
         img_base64 = plotter.create_sample_comparison_plot(data)
         return jsonify({'image': img_base64})
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        logging.warning(
+            "Validation error while generating sample comparison plot: %s",
+            e,
+        )
+        return jsonify({
+            'error': 'Invalid input or data for sample comparison plot. Please verify your files and parameters.'
+        }), 400
     except Exception:
         logging.exception("Unexpected error while generating sample comparison plot")
         return jsonify({
