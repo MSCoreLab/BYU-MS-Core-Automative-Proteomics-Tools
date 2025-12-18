@@ -12,6 +12,7 @@ import base64
 import io
 import re
 import os
+import logging
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -569,8 +570,11 @@ def generate_bar_chart():
         data = processor.load_data(list(uploaded_files.values()))
         img_base64 = plotter.create_bar_chart(data)
         return jsonify({'image': img_base64})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logging.exception("Unexpected error while generating bar chart")
+        return jsonify({
+            'error': 'An internal error occurred while generating the bar chart.'
+        }), 500
 
 
 @app.route('/api/plot/sample-comparison', methods=['POST'])
@@ -584,9 +588,18 @@ def generate_sample_comparison():
         img_base64 = plotter.create_sample_comparison_plot(data)
         return jsonify({'image': img_base64})
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logging.warning(
+            "Validation error while generating sample comparison plot: %s",
+            e,
+        )
+        return jsonify({
+            'error': 'Invalid input or data for sample comparison plot. Please verify your files and parameters.'
+        }), 400
+    except Exception:
+        logging.exception("Unexpected error while generating sample comparison plot")
+        return jsonify({
+            'error': 'An internal error occurred while generating the sample comparison plot.'
+        }), 500
 
 
 if __name__ == '__main__':
