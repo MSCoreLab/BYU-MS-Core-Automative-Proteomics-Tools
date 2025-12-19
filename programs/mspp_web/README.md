@@ -1,81 +1,202 @@
-# MSPP Data Plotter - React + TypeScript + Python
+# MS Protein & Peptide Data Plotter (Web App)
 
-Modern desktop application for MS proteomics data visualization with a React/TypeScript frontend and Python backend.
+Modern web application for analyzing and visualizing mass spectrometry proteomics data from Orbitrap Astral MS (DIA-NN output).
 
-## Architecture
+## Features
 
-```
-┌─────────────────────────────────────────┐
-│   Desktop App (PyWebView)              │
-│  ┌───────────────────────────────────┐ │
-│  │  React + TypeScript Frontend      │ │
-│  │  (Vite, Modern UI)                │ │
-│  └───────────────┬───────────────────┘ │
-│                  │ HTTP/REST API        │
-│  ┌───────────────▼───────────────────┐ │
-│  │  Flask Backend                    │ │
-│  │  (Pandas, Matplotlib, NumPy)      │ │
-│  └───────────────────────────────────┘ │
-└─────────────────────────────────────────┘
-```
+### 📊 Visualizations
+- **Protein Count Bar Chart**: Stacked bar chart showing organism composition across samples
+- **Intensity Ratio Comparison**: 3-panel box plots (HeLa, E.coli, Yeast) showing log2 intensity ratios
 
-## Setup
+### 📥 File Management
+- Drag-and-drop or click to upload TSV files
+- Multi-file support (E25 and E100 samples)
+- Real-time file list display
+- Clear all files with one click
 
-### 1. Backend (Python)
+### 💾 Export Options
+- Export individual plots (300 DPI PNG)
+- Export all plots as ZIP file
+- High-quality images suitable for publication
 
-```powershell
-cd backend
-pip install -r requirements.txt
-```
+### 🔬 Analysis Features
+- Automatic organism identification (HeLa, E.coli, Yeast)
+- Consensus protein calculation (proteins in both E25 and E100)
+- Log2 intensity ratio calculations
+- Quality control validation
 
-### 2. Frontend (React + TypeScript)
+## Quick Start
 
-```powershell
-cd frontend
-npm install
-```
+### Prerequisites
+- Python 3.14+ (or compatible)
+- Node.js 18+ and npm
+- Modern web browser (Chrome, Firefox, Edge, Safari)
 
-## Development
+### Installation
 
-### Run in Development Mode
+1. **Set up backend**
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
+
+2. **Set up frontend**
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+### Running the Application
+
+#### Development Mode
 
 **Terminal 1 - Backend:**
-```powershell
+```bash
 cd backend
 python app.py
 ```
+Backend runs on `http://localhost:5000`
 
 **Terminal 2 - Frontend:**
-```powershell
+```bash
 cd frontend
 npm run dev
 ```
+Frontend runs on `http://localhost:5173`
 
-**Terminal 3 - Desktop App:**
-```powershell
-python desktop_app.py
+#### Production Mode
+
+1. **Build frontend:**
+   ```bash
+   cd frontend
+   npm run build
+   ```
+
+2. **Run backend (serves built frontend):**
+   ```bash
+   cd backend
+   python app.py
+   ```
+
+3. **Access application:**
+   Open `http://localhost:5000` in your browser
+
+## Usage
+
+### 1. Upload Files
+- Click the upload zone or drag-and-drop TSV files
+- Upload E25 and E100 sample files (e.g., `report.pg_matrix_E25_*.tsv` and `report.pg_matrix_E100_*.tsv`)
+- Files appear in the list below the upload zone
+
+### 2. Generate Plots
+- Click **"Generate Protein Count Plot"** for the bar chart
+- Click **"Generate Intensity Ratio Plot"** for the comparison plots
+- Plots appear in the main viewing area
+
+### 3. Export Results
+- **Export Current Plot**: Click the export button below the displayed plot (300 DPI PNG)
+- **Export All Plots (ZIP)**: Click the green "Export All Plots (ZIP)" button to download both plots in one archive
+
+### 4. Clear Files
+- Click **"Clear All Files"** to remove uploaded files and start over
+
+## Expected File Format
+
+Input TSV files should follow DIA-NN protein group matrix format:
+
+```
+Protein.Ids	Protein.Names	Genes	First.Protein.Description	Proteotypic	Protein.Q.Value	Global.Q.Value	[Sample columns...]
 ```
 
-The desktop app will open a native window showing the React UI at http://localhost:3000, which proxies API calls to the Flask backend at http://localhost:5000.
+**File Naming Convention:**
+- E25 samples: `report.pg_matrix_E25_*`
+- E100 samples: `report.pg_matrix_E100_*`
 
-## Production Build
+## Algorithm Details
 
-### 1. Build Frontend
-```powershell
-cd frontend
-npm run build
+### Organism Identification
+- **HeLa**: Proteins matching `sp\|` (UniProt SwissProt)
+- **E.coli**: Proteins containing `ECOLI`
+- **Yeast**: Proteins containing `YEAST`
+- **Unknown**: Everything else
+
+### Intensity Ratio Calculation
+1. Identify consensus proteins (present in both E25 and E100)
+2. Calculate log2(E25/E100) for each protein
+3. Group by organism
+4. Display as box plots with expected ratio lines:
+   - HeLa: 0 (constant concentration)
+   - E.coli: -2 (log2(25/100))
+   - Yeast: +1 (log2(150/75))
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/upload` | Upload TSV file |
+| GET | `/api/files` | List uploaded files |
+| DELETE | `/api/files/<filename>` | Delete specific file |
+| POST | `/api/generate-plot` | Generate protein count plot |
+| POST | `/api/generate-comparison` | Generate intensity ratio plot |
+| POST | `/api/export/bar` | Export bar chart (PNG) |
+| POST | `/api/export/comparison` | Export comparison plot (PNG) |
+| POST | `/api/export/all` | Export both plots (ZIP) |
+
+## Tech Stack
+
+### Backend
+- **Flask**: Web framework and REST API
+- **Pandas**: Data processing and analysis
+- **NumPy**: Numerical operations
+- **Matplotlib**: Visualization generation
+
+### Frontend
+- **React 18**: UI framework
+- **TypeScript**: Type-safe JavaScript
+- **Vite**: Build tool and dev server
+- **Lucide React**: Icon library
+
+## Troubleshooting
+
+### Port Already in Use
+```bash
+# Find process using port 5000
+netstat -ano | findstr :5000
+
+# Kill the process (replace PID)
+taskkill /PID <PID> /F
 ```
 
-### 2. Update desktop_app.py
-Change the webview URL from `http://localhost:3000` to:
+### CORS Errors
+Ensure Flask backend has CORS enabled:
 ```python
-url = str(Path(__file__).parent / 'frontend' / 'dist' / 'index.html')
+from flask_cors import CORS
+CORS(app)
 ```
 
-### 3. Run Desktop App
-```powershell
-python desktop_app.py
-```
+### File Upload Fails
+- Check file format (must be TSV)
+- Verify file size limits in Flask config
+- Ensure files contain required columns
+
+### Plot Not Generating
+- Verify at least one E25 and one E100 file uploaded
+- Check browser console for error messages
+- Ensure files contain protein intensity data
+
+## Documentation
+
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)**: Technical architecture and design patterns
+- **[Backend README](./backend/README.md)**: Flask API documentation (if exists)
+- **[Frontend README](./frontend/README.md)**: React component documentation
+
+## Contributing
+
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) in the root repository.
+
+## License
+
+See [LICENSE](../../LICENSE) in the root repository.
 
 ## Features
 
