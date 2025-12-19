@@ -129,20 +129,23 @@ class DataProcessor:
         cleaned = cleaned.replace('report.pg_matrix_', '').replace('.tsv', '')
         return cleaned if cleaned else filename
     
-    def _calculate_consensus_fold_changes(self, data, e25_file, e100_file, organism):
-        """Calculate log2 fold changes for consensus proteins present in BOTH samples.
+    def _calculate_intensity_ratios(self, data, e25_file, e100_file, organism):
+        """Calculate log2 intensity ratios (E25/E100) for consensus proteins.
+        
+        For each consensus protein, calculate log2(E25_intensity / E100_intensity).
+        This shows the fold change between replicates without HeLa normalization.
         
         Args:
             data: Full DataFrame containing both samples
             e25_file: E25 sample file name
             e100_file: E100 sample file name
-            organism: 'E.coli' or 'Yeast'
+            organism: 'HeLa', 'E.coli', or 'Yeast'
         
         Returns:
-            Tuple of (e25_log2_values, e100_log2_values) for consensus proteins only
+            Array of log2 ratios for consensus proteins, or None if insufficient data
         """
         if e25_file not in self.file_to_raw_column or e100_file not in self.file_to_raw_column:
-            return None, None
+            return None
         
         e25_intensity_col = self.file_to_raw_column[e25_file]
         e100_intensity_col = self.file_to_raw_column[e100_file]
@@ -156,16 +159,16 @@ class DataProcessor:
         e100_org = e100_data[e100_data["Organism"] == organism]
         
         if len(e25_org) == 0 or len(e100_org) == 0:
-            return None, None
+            return None
         
-        # Find consensus proteins: must have valid intensity in BOTH samples
+        # Find protein identifier column
         protein_col = next(
             (col for col in ["Protein.Group", "Protein.Ids", "Protein.Names"] if col in e25_org.columns),
             None
         )
         
         if protein_col is None:
-            return None, None
+            return None
         
         # Get valid proteins from each sample (non-zero, non-NaN intensities)
         e25_valid = e25_org[
@@ -177,37 +180,30 @@ class DataProcessor:
             (e100_org[e100_intensity_col] > 0)
         ]
         
-        # Find consensus proteins present in BOTH
+        # Find consensus proteins present in BOTH samples
         e25_proteins = set(e25_valid[protein_col])
         e100_proteins = set(e100_valid[protein_col])
         consensus_proteins = e25_proteins & e100_proteins
         
         if len(consensus_proteins) == 0:
-            return None, None
+            return None
         
         # Filter to consensus proteins only
-        e25_consensus = e25_valid[e25_valid[protein_col].isin(consensus_proteins)]
-        e100_consensus = e100_valid[e100_valid[protein_col].isin(consensus_proteins)]
+        e25_consensus = e25_valid[e25_valid[protein_col].isin(consensus_proteins)].set_index(protein_col)
+        e100_consensus = e100_valid[e100_valid[protein_col].isin(consensus_proteins)].set_index(protein_col)
         
-        # Calculate HeLa median for each sample
-        e25_hela_median = self._get_hela_median(e25_data, e25_intensity_col)
-        e100_hela_median = self._get_hela_median(e100_data, e100_intensity_col)
+        # Align by protein ID to ensure paired comparison
+        common_proteins = e25_consensus.index.intersection(e100_consensus.index)
+        e25_aligned = e25_consensus.loc[common_proteins, e25_intensity_col]
+        e100_aligned = e100_consensus.loc[common_proteins, e100_intensity_col]
         
-        # Calculate log2 normalized intensities for consensus proteins
-        e25_intensities = e25_consensus[e25_intensity_col]
-        e100_intensities = e100_consensus[e100_intensity_col]
+        # Calculate log2(E25 / E100) for each protein
+        ratios = np.log2(e25_aligned.values / e100_aligned.values)
         
-        e25_normalized = np.log2(e25_intensities / e25_hela_median)
-        e100_normalized = np.log2(e100_intensities / e100_hela_median)
+        # Filter out invalid values (inf, nan)
+        valid_ratios = ratios[np.isfinite(ratios)]
         
-        # Filter out invalid values
-        e25_array = np.array(e25_normalized.values)
-        e100_array = np.array(e100_normalized.values)
-        
-        e25_valid_vals = e25_array[np.isfinite(e25_array)]
-        e100_valid_vals = e100_array[np.isfinite(e100_array)]
-        
-        return e25_valid_vals, e100_valid_vals
+        return valid_ratios if len(valid_ratios) > 0 else None
     
     def calculate_protein_id_counts(self, data):
         """Calculate protein ID counts grouped by organism and source file."""
@@ -219,10 +215,11 @@ class DataProcessor:
         return counts
     
     def calculate_sample_comparison_data(self, data):
-        """Calculate E25 vs E100 intensity comparison data for all mixes.
+        """Calculate log2 intensity ratios (E25/E100) for all organisms and mixes.
         
         Returns:
-            Dict with 'ecoli_results', 'yeast_results', 'mix_boundaries', 'sorted_mixes'
+            Dict with 'hela_results', 'ecoli_results', 'yeast_results', 'sorted_mixes'
+            Each result is a list of (ratio_array, mix_id) tuples
         """
         # Get all sample files
         sample_files = sorted(data["Source_File"].unique())
@@ -240,11 +237,10 @@ class DataProcessor:
         
         sorted_mixes = sorted(mix_groups.keys())
         
-        # Calculate intensities for E25 and E100 separately for each mix
+        # Calculate intensity ratios for each organism
+        hela_results = []
         ecoli_results = []
         yeast_results = []
-        mix_boundaries = []
-        current_position = 0
         
         for mix_id in sorted_mixes:
             mix_samples = sorted(mix_groups[mix_id])
@@ -261,38 +257,32 @@ class DataProcessor:
                     e100_file = source_file
             
             if e25_file and e100_file:
-                # Calculate consensus fold changes for E.coli
-                e25_ecoli, e100_ecoli = self._calculate_consensus_fold_changes(
+                # Calculate log2 ratios for each organism
+                hela_ratios = self._calculate_intensity_ratios(
+                    data, e25_file, e100_file, "HeLa"
+                )
+                ecoli_ratios = self._calculate_intensity_ratios(
                     data, e25_file, e100_file, "E.coli"
                 )
-                
-                # Calculate consensus fold changes for Yeast
-                e25_yeast, e100_yeast = self._calculate_consensus_fold_changes(
+                yeast_ratios = self._calculate_intensity_ratios(
                     data, e25_file, e100_file, "Yeast"
                 )
                 
-                # Add E.coli results (both E25 and E100 together since they're matched)
-                if e25_ecoli is not None and e100_ecoli is not None:
-                    ecoli_results.append(("E25", e25_ecoli, mix_id))
-                    current_position += 1
-                    ecoli_results.append(("E100", e100_ecoli, mix_id))
-                    current_position += 1
-                
-                # Add Yeast results (both E25 and E100 together since they're matched)
-                if e25_yeast is not None and e100_yeast is not None:
-                    yeast_results.append(("E25", e25_yeast, mix_id))
-                    yeast_results.append(("E100", e100_yeast, mix_id))
-            
-            if current_position > 0:
-                mix_boundaries.append(current_position)
+                # Add results (one box per run)
+                if hela_ratios is not None:
+                    hela_results.append((hela_ratios, mix_id))
+                if ecoli_ratios is not None:
+                    ecoli_results.append((ecoli_ratios, mix_id))
+                if yeast_ratios is not None:
+                    yeast_results.append((yeast_ratios, mix_id))
         
-        if not ecoli_results and not yeast_results:
+        if not hela_results and not ecoli_results and not yeast_results:
             raise ValueError("No valid E25/E100 pairs found")
         
         return {
+            'hela_results': hela_results,
             'ecoli_results': ecoli_results,
             'yeast_results': yeast_results,
-            'mix_boundaries': mix_boundaries,
             'sorted_mixes': sorted_mixes
         }
     
@@ -308,33 +298,41 @@ class PlotGenerator:
         """Initialize with a DataProcessor instance."""
         self.processor = processor
     
-    def create_bar_chart(self, data):
-        """Create and return bar chart as base64 image."""
+    def _create_bar_chart_figure(self, data, figsize=(12, 7)):
+        """Create bar chart matplotlib figure (reusable for display and export).
+        
+        Args:
+            data: DataFrame with protein data
+            figsize: Tuple of (width, height) for figure size
+        
+        Returns:
+            Matplotlib figure object
+        """
         counts = self.processor.calculate_protein_id_counts(data)
-        plot_colors = [self.COLORS[col] for col in counts.columns]
-
-        fig, ax = plt.subplots(figsize=(12, 7))
-        counts.plot(
-            kind="bar",
-            stacked=True,
-            ax=ax,
-            color=plot_colors,
-            edgecolor="black",
-            linewidth=0.5,
-            alpha=0.8,
+        org_order = self.processor.ORGANISMS + ["Unknown"]
+        counts = counts.reindex(
+            columns=[col for col in org_order if col in counts.columns], fill_value=0
         )
+        
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # Create stacked bar chart
+        bottom = np.zeros(len(counts))
+        for organism in counts.columns:
+            ax.bar(
+                range(len(counts)), counts[organism], bottom=bottom,
+                label=organism, color=self.COLORS.get(organism, "#95a5a6"), alpha=0.8
+            )
+            bottom += counts[organism].values
         
         # Add count labels on each bar segment
         for i, sample in enumerate(counts.index):
             y_offset = 0
             for organism in counts.columns:
                 count = counts.loc[sample, organism]
-                if count > 0:  # Only label non-zero segments
-                    # Calculate center position of this segment
+                if count > 0:
                     bar_height = count
                     y_pos = y_offset + bar_height / 2
-                    
-                    # Add text label
                     ax.text(
                         i, y_pos, str(int(count)),
                         ha='center', va='center',
@@ -343,6 +341,7 @@ class PlotGenerator:
                     )
                     y_offset += bar_height
         
+        # Configure axes and styling
         ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
         ax.set_ylabel("Number of Protein IDs", fontsize=12, fontweight="bold")
         ax.set_title("Protein ID Counts by Organism", fontsize=14, fontweight="bold")
@@ -352,61 +351,98 @@ class PlotGenerator:
         plt.setp(ax.xaxis.get_majorticklabels(), ha="right")
         plt.tight_layout()
         
+        return fig
+    
+    def create_bar_chart(self, data):
+        """Create and return bar chart as base64 image."""
+        fig = self._create_bar_chart_figure(data)
         return self._fig_to_base64(fig)
     
-    def create_sample_comparison_plot(self, data):
-        """Create and return sample comparison plot as base64 image."""
+    def _create_comparison_figure(self, data, figsize=(18, 16)):
+        """Create sample comparison matplotlib figure (reusable for display and export).
+        
+        Args:
+            data: DataFrame with protein data
+            figsize: Tuple of (width, height) for figure size
+        
+        Returns:
+            Matplotlib figure object
+        """
         # Get prepared data from processor
         comparison_data = self.processor.calculate_sample_comparison_data(data)
         
+        hela_results = comparison_data['hela_results']
         ecoli_results = comparison_data['ecoli_results']
         yeast_results = comparison_data['yeast_results']
-        mix_boundaries = comparison_data['mix_boundaries']
         sorted_mixes = comparison_data['sorted_mixes']
         
-        # Create figure with two subplots
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
+        # Create figure with 3 vertical subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=figsize)
         
-        # Plot E.coli comparison
-        if ecoli_results:
-            self._plot_organism_comparison(
-                ax1, ecoli_results, mix_boundaries, sorted_mixes,
-                title="E.coli Intensity Comparison",
-                colors=("#e67e22", "#3498db"),  # Orange, Blue
-                label_map={"E25": "E25", "E100": "E100"}
+        # Plot HeLa comparison (top)
+        if hela_results:
+            self._plot_ratio_comparison(
+                ax1, hela_results, sorted_mixes,
+                title="HeLa Log2 Intensity Ratio",
+                color="#9b59b6",  # Purple
+                reference_line=0  # Expected: 0 (constant concentration)
             )
         else:
-            ax1.text(0.5, 0.5, "No E.coli data", ha="center", va="center",
+            ax1.text(0.5, 0.5, "No HeLa data", ha="center", va="center",
                     transform=ax1.transAxes, fontsize=14)
         
-        # Plot Yeast comparison
-        if yeast_results:
-            self._plot_organism_comparison(
-                ax2, yeast_results, mix_boundaries, sorted_mixes,
-                title="Yeast Intensity Comparison",
-                colors=("#16a085", "#9b59b6"),  # Teal, Purple
-                label_map={"E25": "Y150", "E100": "Y75"}
+        # Plot E.coli comparison (middle)
+        if ecoli_results:
+            self._plot_ratio_comparison(
+                ax2, ecoli_results, sorted_mixes,
+                title="E.coli Log2 Intensity Ratio",
+                color="#e67e22",  # Orange
+                reference_line=-2  # Expected: -2 (log2(25/100))
             )
         else:
-            ax2.text(0.5, 0.5, "No Yeast data", ha="center", va="center",
+            ax2.text(0.5, 0.5, "No E.coli data", ha="center", va="center",
                     transform=ax2.transAxes, fontsize=14)
         
+        # Plot Yeast comparison (bottom)
+        if yeast_results:
+            self._plot_ratio_comparison(
+                ax3, yeast_results, sorted_mixes,
+                title="Yeast Log2 Intensity Ratio",
+                color="#16a085",  # Teal
+                reference_line=1  # Expected: 1 (log2(150/75))
+            )
+        else:
+            ax3.text(0.5, 0.5, "No Yeast data", ha="center", va="center",
+                    transform=ax3.transAxes, fontsize=14)
+        
         plt.suptitle(
-            "E25 vs E100 Intensity Comparison by Mix (HeLa-Normalized)",
-            fontsize=15,
+            "Intensity Ratio Comparison by Run",
+            fontsize=16,
             fontweight="bold",
-            y=0.98
+            y=0.995
         )
         plt.tight_layout()
+        
+        return fig
+    
+    def create_sample_comparison_plot(self, data):
+        """Create and return stacked 3-panel comparison plot as base64 image."""
+        fig = self._create_comparison_figure(data)
         return self._fig_to_base64(fig)
     
-    def _plot_organism_comparison(self, ax, results, mix_boundaries, sorted_mixes, 
-                                   title, colors, label_map):
-        """Helper method to plot box plot comparison for one organism."""
-        # Extract and convert labels
-        original_labels = [r[0] for r in results]
-        display_labels = [label_map.get(lbl, lbl) for lbl in original_labels]
-        data_arrays = [r[1] for r in results]
+    def _plot_ratio_comparison(self, ax, results, sorted_mixes, title, color, reference_line):
+        """Helper method to plot box plot for intensity ratios of one organism.
+        
+        Args:
+            ax: Matplotlib axis
+            results: List of (ratio_array, mix_id) tuples
+            sorted_mixes: List of mix identifiers
+            title: Plot title
+            color: Box plot color
+            reference_line: Y-value for expected ratio reference line
+        """
+        data_arrays = [r[0] for r in results]
+        mix_labels = [r[1] for r in results]
         positions = np.arange(1, len(data_arrays) + 1)
         
         # Create box plot
@@ -418,7 +454,7 @@ class PlotGenerator:
             showfliers=True,
             showmeans=True,
             flierprops=dict(
-                marker="o", markerfacecolor=colors[0], markersize=3,
+                marker="o", markerfacecolor=color, markersize=3,
                 alpha=0.4, markeredgecolor="none"
             ),
             meanprops=dict(
@@ -426,9 +462,8 @@ class PlotGenerator:
             ),
         )
         
-        # Color boxes based on original label (E25 vs E100)
-        for i, (patch, orig_label) in enumerate(zip(bp["boxes"], original_labels)):
-            color = colors[0] if orig_label == "E25" else colors[1]
+        # Color all boxes the same
+        for patch in bp["boxes"]:
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
             patch.set_edgecolor("white")
@@ -439,57 +474,27 @@ class PlotGenerator:
         plt.setp(bp["medians"], color="#2c3e50", linewidth=2.5)
         
         # Add median value annotations
-        for i, data in enumerate(data_arrays):
-            median_val = np.median(data)
+        for i, data_arr in enumerate(data_arrays):
+            median_val = np.median(data_arr)
             ax.text(
-                i + 1.35, median_val, f"{median_val:.2f}",
-                fontsize=9, va="center", color="white", fontweight="bold"
+                i + 1, median_val, f"{median_val:.2f}",
+                fontsize=9, va="bottom", ha="center", color="white", 
+                fontweight="bold", bbox=dict(boxstyle="round,pad=0.3", 
+                facecolor="black", alpha=0.5, edgecolor="none")
             )
         
-        # Add visual separators and mix labels
-        self._add_mix_separators(ax, mix_boundaries, sorted_mixes, len(data_arrays))
+        # Add reference line for expected ratio
+        ax.axhline(y=reference_line, color="#f39c12", linestyle="--", 
+                   linewidth=2, alpha=0.9, 
+                   label=f"Expected: {reference_line}")
         
         # Configure axes
-        ax.axhline(y=0, color="#f39c12", linestyle="--", linewidth=2, alpha=0.9, 
-                   label="Reference (1:1)")
-        ax.set_ylabel("Log2 Intensity (HeLa-Normalized)", fontsize=12, fontweight="bold")
-        ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
-        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.set_ylabel("Log2 Intensity Ratio", fontsize=11, fontweight="bold")
+        ax.set_title(title, fontsize=12, fontweight="bold")
         ax.set_xticks(positions)
-        ax.set_xticklabels(display_labels, rotation=0, ha="center", fontsize=10)
+        ax.set_xticklabels(mix_labels, rotation=45, ha="right", fontsize=9)
         ax.grid(axis="y", alpha=0.3)
-        ax.legend(fontsize=9)
-    
-    def _add_mix_separators(self, ax, mix_boundaries, sorted_mixes, total_samples):
-        """Add vertical separator lines and mix labels to plot."""
-        ylim = ax.get_ylim()
-        prev_boundary = 0
-        
-        # Add separators between mixes (but not after the last one)
-        for idx, boundary in enumerate(mix_boundaries[:-1]):
-            ax.axvline(x=boundary + 0.5, color="#555555", linestyle="-", 
-                      linewidth=2, alpha=0.8)
-            
-            # Add mix label
-            mid_point = (prev_boundary + boundary) / 2 + 0.5
-            if idx < len(sorted_mixes):
-                ax.text(
-                    mid_point, ylim[1] * 0.95, f"Mix: {sorted_mixes[idx]}",
-                    ha="center", va="top", fontsize=9, color="#aaaaaa",
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="#2c2c2c", 
-                             edgecolor="#555555", alpha=0.8)
-                )
-            prev_boundary = boundary
-        
-        # Label for last mix
-        if sorted_mixes:
-            mid_point = (prev_boundary + total_samples) / 2 + 0.5
-            ax.text(
-                mid_point, ylim[1] * 0.95, f"Mix: {sorted_mixes[-1]}",
-                ha="center", va="top", fontsize=9, color="#aaaaaa",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#2c2c2c", 
-                         edgecolor="#555555", alpha=0.8)
-            )
+        ax.legend(fontsize=9, loc="upper right")
     
     def _fig_to_base64(self, fig):
         """Convert matplotlib figure to base64 encoded PNG."""
@@ -599,6 +604,106 @@ def generate_sample_comparison():
         logging.exception("Unexpected error while generating sample comparison plot")
         return jsonify({
             'error': 'An internal error occurred while generating the sample comparison plot.'
+        }), 500
+
+
+@app.route('/api/export/bar-chart', methods=['POST'])
+def export_bar_chart():
+    """Export protein ID bar chart as PNG file."""
+    if not uploaded_files:
+        return jsonify({'error': 'No files uploaded'}), 400
+    
+    try:
+        from flask import send_file
+        data = processor.load_data(list(uploaded_files.values()))
+        
+        # Generate high-DPI plot using reusable method
+        fig = plotter._create_bar_chart_figure(data, figsize=(10, 6))
+        
+        # Save to bytes buffer
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        
+        return send_file(buf, mimetype='image/png', as_attachment=True, download_name='protein_id_bar_chart.png')
+    except Exception:
+        logging.exception("Unexpected error while exporting bar chart")
+        return jsonify({
+            'error': 'An internal error occurred while exporting the bar chart.'
+        }), 500
+
+
+@app.route('/api/export/sample-comparison', methods=['POST'])
+def export_sample_comparison():
+    """Export sample comparison plot as PNG file."""
+    if not uploaded_files:
+        return jsonify({'error': 'No files uploaded'}), 400
+    
+    try:
+        from flask import send_file
+        data = processor.load_data(list(uploaded_files.values()))
+        
+        # Generate high-DPI plot using reusable method
+        fig = plotter._create_comparison_figure(data, figsize=(18, 16))
+        
+        # Save to bytes buffer with high DPI
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        
+        return send_file(buf, mimetype='image/png', as_attachment=True, download_name='intensity_ratio_comparison.png')
+    except Exception:
+        logging.exception("Unexpected error while exporting sample comparison")
+        return jsonify({
+            'error': 'An internal error occurred while exporting the sample comparison plot.'
+        }), 500
+
+
+@app.route('/api/export/all', methods=['POST'])
+def export_all_plots():
+    """Export all plots as a ZIP file."""
+    if not uploaded_files:
+        return jsonify({'error': 'No files uploaded'}), 400
+    
+    try:
+        from flask import send_file
+        import zipfile
+        
+        data = processor.load_data(list(uploaded_files.values()))
+        
+        # Create ZIP file in memory
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Generate and add bar chart using reusable method
+            fig = plotter._create_bar_chart_figure(data, figsize=(10, 6))
+            bar_buf = io.BytesIO()
+            fig.savefig(bar_buf, format='png', dpi=300, bbox_inches='tight')
+            bar_buf.seek(0)
+            plt.close(fig)
+            zip_file.writestr('protein_id_bar_chart.png', bar_buf.getvalue())
+            
+            # Generate and add sample comparison plot using reusable method
+            fig = plotter._create_comparison_figure(data, figsize=(18, 16))
+            comp_buf = io.BytesIO()
+            fig.savefig(comp_buf, format='png', dpi=300, bbox_inches='tight')
+            comp_buf.seek(0)
+            plt.close(fig)
+            zip_file.writestr('intensity_ratio_comparison.png', comp_buf.getvalue())
+        
+        zip_buffer.seek(0)
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='mspp_plots.zip'
+        )
+    except Exception:
+        logging.exception("Unexpected error while exporting all plots")
+        return jsonify({
+            'error': 'An internal error occurred while exporting plots.'
         }), 500
 
 

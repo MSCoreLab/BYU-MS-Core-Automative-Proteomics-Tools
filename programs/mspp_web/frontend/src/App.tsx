@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Upload, BarChart3, TrendingUp, X, Loader2 } from 'lucide-react'
+import { Upload, BarChart3, TrendingUp, X, Loader2, Download } from 'lucide-react'
 import './App.css'
 
 interface PlotResult {
@@ -12,6 +12,7 @@ function App() {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [plotImage, setPlotImage] = useState<string | null>(null)
+  const [currentPlotType, setCurrentPlotType] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,10 +83,57 @@ function App() {
       if (!response.ok) throw new Error(data.error || 'Plot generation failed')
 
       setPlotImage(data.image)
+      setCurrentPlotType(endpoint)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Plot generation failed')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const exportPlot = async () => {
+    if (!currentPlotType) return
+
+    try {
+      const response = await fetch(`/api/export/${currentPlotType}`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) throw new Error('Export failed')
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = currentPlotType === 'bar-chart' ? 'protein_id_bar_chart.png' : 'intensity_ratio_comparison.png'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed')
+    }
+  }
+
+  const exportAllPlots = async () => {
+    try {
+      const response = await fetch('/api/export/all', {
+        method: 'POST',
+      })
+
+      if (!response.ok) throw new Error('Export failed')
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mspp_plots.zip'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export all plots failed')
     }
   }
 
@@ -175,6 +223,16 @@ function App() {
                 <TrendingUp size={20} />
                 Sample Intensity Comparison (E25 vs E100)
               </button>
+
+              <button
+                onClick={exportAllPlots}
+                disabled={uploadedFiles.length === 0 || loading}
+                className="btn btn-export-all"
+                title="Download all plots as ZIP"
+              >
+                <Download size={20} />
+                Export All Plots (ZIP)
+              </button>
             </div>
           </div>
 
@@ -195,6 +253,16 @@ function App() {
 
           {plotImage && (
             <div className="plot-container">
+              <div className="plot-header">
+                <button
+                  onClick={exportPlot}
+                  className="btn btn-export"
+                  title="Download plot as PNG"
+                >
+                  <Download size={16} />
+                  Export Plot
+                </button>
+              </div>
               <img
                 src={`data:image/png;base64,${plotImage}`}
                 alt="Generated plot"

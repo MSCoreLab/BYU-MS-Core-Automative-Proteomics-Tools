@@ -286,7 +286,7 @@ HYE_E100_base.raw                E100_20_2_350960_600_1        E100
 HYE_E25_base.raw                 E25_20_2_350960_600_1         E25   ✅ UNIQUE!
 ```
 
-💡 **Tip:** You can use Python/R scripts or Excel formulas to extract filename components and create unique identifiers. The key is that every row must have a different `sample_name`.
+💡 **Tip:** You can use a Python script or Excel formulas to extract filename components and create unique identifiers. The key is that every row must have a different `sample_name`.
 
 #### Requirement 2: Sufficient replicates per condition
 
@@ -295,9 +295,9 @@ HYE_E25_base.raw                 E25_20_2_350960_600_1         E25   ✅ UNIQUE!
 **Example of the problem:**
 
 ```         
-condition                         # samples
-E100_Cycle20_Iso2_MZ350960_AGC600      2    ❌ Too few replicates per condition
-E25_Cycle20_Iso2_MZ350960_AGC600       2    ❌ 48 unique conditions total
+condition                              # samples    issues
+E100_Cycle20_Iso2_MZ350960_AGC600      2            ❌ Too few replicates per condition
+E25_Cycle20_Iso2_MZ350960_AGC600       2            ❌ 48 unique conditions total
 ...
 ```
 
@@ -306,11 +306,11 @@ E25_Cycle20_Iso2_MZ350960_AGC600       2    ❌ 48 unique conditions total
 **Option A: Compare E. coli concentrations (E100 vs E25)**
 
 ```         
-file                              sample_name              condition  replicate
-HYE_E100_base.raw                E100_20_2_350960_600_1        E100         1
-HYE_E25_base.raw                 E25_20_2_350960_600_1         E25          1
-HYE_E100_base_20251114164316.raw E100_20_2_350960_800_2        E100         2
-HYE_E25_base_20251114160714.raw  E25_20_2_350960_800_2         E25          2
+file                             sample_name                                condition    replicate
+HYE_E100_base.raw                E100_Cycle20_Iso2_MZ350960_AGC600_1        E100         1
+HYE_E25_base.raw                 E25_Cycle20_Iso2_MZ350960_AGC600_1         E25          1
+HYE_E100_base_20251114164316.raw E100_Cycle20_Iso2_MZ350960_AGC800_2        E100         2
+HYE_E25_base_20251114160714.raw  E25_Cycle20_Iso2_MZ350960_AGC800_2         E25          2
 ...
 ```
 
@@ -338,7 +338,7 @@ E25_Cycle30           12    ✅
 
 #### Step-by-step modification process:
 
-1.  **Open `experiment.annotation.tsv` in Excel, Python, or R**
+1.  **Open `experiment.annotation.tsv` in Excel or a Python script**
 2.  **Create unique `sample_name` values** by combining filename information with the original sample_name
 3.  **Simplify the `condition` column** to group samples appropriately for your comparison
 4.  **Verify your design:**
