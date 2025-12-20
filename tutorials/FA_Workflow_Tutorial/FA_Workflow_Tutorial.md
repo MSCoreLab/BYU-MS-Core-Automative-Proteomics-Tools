@@ -136,13 +136,39 @@ Confirm the **Data Type** column shows "DIA" for all files:
 
 You need to name the experimental condition for each file and assign bioreplicate numbers.
 
-**How to assign experiments and bioreplicates:** - **Experiment column:** Enter the condition name (e.g., "Control", "Treatment", "High_Dose") - **Bioreplicate column:** Enter a number for each replicate (e.g., 1, 2, 3) - Files from the same condition should have the **same Experiment name** but **different Bioreplicate numbers**
+**How to assign experiments and bioreplicates:**
 
-**Example:** - Control_rep1.raw → Experiment: "Control", Bioreplicate: 1 - Control_rep2.raw → Experiment: "Control", Bioreplicate: 2 - Control_rep3.raw → Experiment: "Control", Bioreplicate: 3 - Treatment_rep1.raw → Experiment: "Treatment", Bioreplicate: 1 - Treatment_rep2.raw → Experiment: "Treatment", Bioreplicate: 2 - Treatment_rep3.raw → Experiment: "Treatment", Bioreplicate: 3
+\- **Experiment column:** Enter the condition name (e.g., "Control", "Treatment", "High_Dose")
 
-⚠️ **Common mistakes to avoid:** - Using different names for the same condition ("Control" vs "control" vs "Ctrl") - Assigning the same bioreplicate number to different samples in the same condition - Leaving experiment or bioreplicate fields blank
+\- **Bioreplicate column:** Enter a number for each replicate (e.g., 1, 2, 3)
 
-This information is **essential** for Fragpipe Analyst to perform statistical comparisons correctly.
+\- Files from the same condition should have the **same Experiment name** but **different Bioreplicate numbers**
+
+**Example:**
+
+\- Control_rep1.raw → Experiment: "Control", Bioreplicate: 1
+
+\- Control_rep2.raw → Experiment: "Control", Bioreplicate: 2
+
+\- Control_rep3.raw → Experiment: "Control", Bioreplicate: 3
+
+\- Treatment_rep1.raw → Experiment: "Treatment", Bioreplicate: 1
+
+\- Treatment_rep2.raw → Experiment: "Treatment", Bioreplicate: 2
+
+\- Treatment_rep3.raw → Experiment: "Treatment", Bioreplicate: 3
+
+⚠️ **Common mistakes to avoid:**
+
+\- Using different names for the same condition ("Control" vs "control" vs "Ctrl")
+
+\- Assigning the same bioreplicate number to different samples in the same condition
+
+\- Leaving experiment or bioreplicate fields blank (even though Fragpipe tells you it can be empty, FragPipe Analyst needs these annotations to work)
+
+These information are **essential** for Fragpipe Analyst to perform statistical comparisons correctly.
+
+Whatever your inputs are here, they will be exported to an editable output file that Fragpipe Analyst can read (we will get to that later). So don't fret if you make a mistake, just remember to correct it in the output file before using Fragpipe Analyst.
 
 ![Assigning experiments and bioreplicates](./screenshots/Step_13.png)
 
@@ -174,11 +200,21 @@ Navigate to the **Database** tab and add your FASTA file:
 
 ![Database tab](./screenshots/Step_15.png)
 
-### Step 16: Add decoy sequences
+If you chose the download option, a menu will appear. Select the species whose samples you are analyzing. If the species of interest is not listed here, look up its Uniprot ID and paste it into the Other box.
 
-Once your FASTA file appears in the database path, click **Add decoys** to generate decoy sequences.
+![Download options](screenshots/Step_15_2.png){width="403"}
 
-⚠️ **Important:** Decoy sequences are essential for false discovery rate (FDR) calculation. Always add decoys before running the analysis.
+Click OK. Fragpipe will then download the FASTA file. When its finished, save the FASTA file to desired location and Fragpipe will automatically use that file as the database.
+
+### Step 16: Validate FASTA file path & add decoy sequences (If you didn't download the FASTA file)
+
+Make sure that the correct FASTA file has appeared in the database path.
+
+If your FASTA file doesn't already have decoys added, click **Add decoys** to generate decoy sequences. Otherwise ignore this step.
+
+If you downloaded your FASTA file in the previous step, you may simply proceed to the next step.
+
+⚠️ **Important:** Decoy sequences are essential for false discovery rate (FDR) calculation. Always make sure decoys are included in your FASTA file before running the analysis.
 
 ![FASTA file added](./screenshots/Step_16.png)
 
@@ -208,7 +244,17 @@ If you see an error message, the run has been aborted.
 
 ![Error message example](./screenshots/Step_20.png)
 
-**Common issues and solutions:** - **Insufficient disk space:** Free up space and restart - **Incorrect FASTA file:** Verify proper formatting and protein sequences - **Corrupted raw files:** Check that .raw files are complete - **Missing dependencies:** Return to Steps 5-6 and verify installations - **Memory issues:** Close other programs or process fewer files at once
+**Common issues and solutions:**
+
+\- **Insufficient disk space:** Free up space and restart
+
+\- **Incorrect FASTA file:** Verify proper formatting and protein sequences
+
+\- **Corrupted raw files:** Check that .raw files are intact
+
+\- **Missing dependencies:** Return to Steps 5-6 and verify installations
+
+\- **Memory issues:** Close other programs or process fewer files at once
 
 💡 **Tip:** Check the log messages above the error for specific details about what went wrong.
 
@@ -218,7 +264,19 @@ When processing completes successfully, you should see a **"DONE"** message in t
 
 ✅ **Success!** Your data has been processed and is now available as .tsv files in your output directory, ready to be analyzed by Fragpipe Analyst!
 
-**Key output files:** - `combined_protein.tsv` - Protein-level results - `combined_peptide.tsv` - Peptide-level results - `diann-output.tsv` - DIA-NN quantification - `experiment.annotation.tsv` - **Required for Fragpipe Analyst** - `report.pg_matrix.tsv` - **Required for Fragpipe Analyst** - `report.pr_matrix.tsv` - Precursor matrix (optional) - QC report files
+**Key output files:**
+
+\- `combined_protein.tsv` - Protein-level results
+
+\- `combined_peptide.tsv` - Peptide-level results
+
+\- `diann-output.tsv` - DIA-NN quantification
+
+\- `experiment.annotation.tsv` - **Required for Fragpipe Analyst**
+
+\- `report.pg_matrix.tsv` - **Required for Fragpipe Analyst**
+
+\- `report.pr_matrix.tsv` - Precursor matrix (optional)
 
 ![Run successfully completed](./screenshots/Step_21.png)
 
@@ -226,9 +284,15 @@ When processing completes successfully, you should see a **"DONE"** message in t
 
 ## How to use Fragpipe Analyst to analyze your processed data {#how-to-use-fragpipe-analyst-to-analyze-your-processed-data}
 
-The key files for Fragpipe Analyst are in the **"fragpipe"** subfolder:
+**Finding the output files**
 
-**Required files:** - `experiment.annotation.tsv` - Experimental design - `report.pg_matrix.tsv` - Protein group quantification matrix
+The key output files for Fragpipe Analyst are in the **"fragpipe"** subfolder. These output files are needed for Fragpipe Analyst to locate the protein IDs and categorize them into species and other useful categories.
+
+**Required files:**
+
+\- `experiment.annotation.tsv` - Experimental design
+
+\- `report.pg_matrix.tsv` - Protein group quantification matrix
 
 ### Step 22: Navigate to output directory
 
@@ -268,29 +332,31 @@ The `experiment.annotation.tsv` file created by Fragpipe needs to be modified be
 
 #### Requirement 1: Unique sample_name for every file
 
+\*Editor's note: I forgot to mention that you can totally have unique sample names (under sample_name column) for every file in Fragpipe. You just need to make sure that you annotate your files in Step 13 so that each of your file has a unique sample name. If Fragpipe for some reason didn't preserve your annotations, keep reading. Otherwise skip to Requirement 2.
+
 **Problem:** Fragpipe may generate duplicate `sample_name` values for different files.
 
 **Example of the problem:**
 
 ```         
-file                              sample_name       condition
-HYE_E100_base.raw                20_2_350960_600_1      20
-HYE_E25_base.raw                 20_2_350960_600_1      20  ❌ DUPLICATE!
+file                             sample_name
+HYE_E100_base.raw                20_2_350960_600_1
+HYE_E25_base.raw                 20_2_350960_600_1     ❌ DUPLICATE!
 ```
 
 **Solution:** Make each `sample_name` unique by prepending information from the filename:
 
 ```         
-file                              sample_name              condition
-HYE_E100_base.raw                E100_20_2_350960_600_1        E100
-HYE_E25_base.raw                 E25_20_2_350960_600_1         E25   ✅ UNIQUE!
+file                             sample_name
+HYE_E100_base.raw                E100_20_2_350960_600_1
+HYE_E25_base.raw                 E25_20_2_350960_600_1     ✅ UNIQUE!
 ```
 
 💡 **Tip:** You can use a Python script or Excel formulas to extract filename components and create unique identifiers. The key is that every row must have a different `sample_name`.
 
 #### Requirement 2: Sufficient replicates per condition
 
-**Problem:** Fragpipe Analyst requires **at least 3 samples per condition** for statistical analysis. If you have too many unique conditions with too few samples each, you'll get an error.
+**Problem:** Fragpipe Analyst requires **at least 3 samples per condition** for statistical analysis. Fragpipe itself doesn't provide the option to add annotation for experimental conditions, so it will have to be added in the `experiment.annotation.tsv` output file under the condition column. If you have too many unique conditions with too few samples each, you'll get an error.
 
 **Example of the problem:**
 
@@ -303,7 +369,7 @@ E25_Cycle20_Iso2_MZ350960_AGC600       2            ❌ 48 unique conditions tot
 
 **Solution:** Group your samples by the **biological variable you want to compare**, treating other experimental parameters as replicates:
 
-**Option A: Compare E. coli concentrations (E100 vs E25)**
+**Compare E. coli concentrations (E100 vs E25)**
 
 ```         
 file                             sample_name                                condition    replicate
@@ -316,29 +382,11 @@ HYE_E25_base_20251114160714.raw  E25_Cycle20_Iso2_MZ350960_AGC800_2         E25 
 
 Result: 2 conditions (E100, E25) × 24 samples each ✅
 
-**Option B: Compare cycle times (20 vs 30 min)**
-
-```         
-condition  # samples
-Cycle20         24    ✅
-Cycle30         24    ✅
-```
-
-**Option C: Compare E. coli × cycle time**
-
-```         
-condition         # samples
-E100_Cycle20          12    ✅
-E100_Cycle30          12    ✅
-E25_Cycle20           12    ✅
-E25_Cycle30           12    ✅
-```
-
 ⚠️ **Key principle:** Group samples by your primary biological question. Other parameters become replicates.
 
 #### Step-by-step modification process:
 
-1.  **Open `experiment.annotation.tsv` in Excel or a Python script**
+1.  **Open `experiment.annotation.tsv` in Excel, or run it with a Python script**
 2.  **Create unique `sample_name` values** by combining filename information with the original sample_name
 3.  **Simplify the `condition` column** to group samples appropriately for your comparison
 4.  **Verify your design:**
@@ -349,7 +397,7 @@ E25_Cycle30           12    ✅
 
 💡 **Pro tip:** Keep a backup of the original file before making changes. You can create multiple versions with different condition groupings to explore different biological questions from the same dataset.
 
-**Example Python code to automate this process:**
+**Example Python code to automate this process (you may need to change str.extract & alias for your own samples):**
 
 ``` python
 import polars as pl
@@ -386,7 +434,11 @@ After making these modifications, your file is ready for upload:
 
 ### Step 28: Upload files to Fragpipe Analyst
 
-Return to Fragpipe Analyst and click **Browse** to upload: 1. Modified `experiment.annotation.tsv` 2. `report.pg_matrix.tsv`
+Return to Fragpipe Analyst and click **Browse** to upload:
+
+1\. Modified `experiment.annotation.tsv`
+
+2\. `report.pg_matrix.tsv`
 
 Then click **Run**.
 
