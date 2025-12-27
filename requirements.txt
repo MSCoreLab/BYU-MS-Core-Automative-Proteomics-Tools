@@ -1,12 +1,36 @@
-# This file is for convenience. For development, use: pip install -e ".[dev]"
-# This matches dependencies in pyproject.toml
+# BYU Core MS Lab - Python Requirements
+# For development, use: pip install -r requirements.txt
+# Recommended: Use Python 3.14.2
 
 # Core data science packages
-numpy>=2.0.0
-pandas>=2.0.0
-matplotlib>=3.8.0
-seaborn>=0.13.0
+numpy==2.4.0
+pandas==2.3.3
+matplotlib==3.10.8
+seaborn==0.13.2
 
 # Web application (Flask backend)
-flask>=3.0.0
-flask-cors>=4.0.0
+Flask==3.1.2
+flask-cors==6.0.2
+
+# Dependencies (automatically installed with above packages)
+blinker==1.9.0
+click==8.3.1
+colorama==0.4.6
+contourpy==1.3.3
+cycler==0.12.1
+fonttools==4.61.1
+itsdangerous==2.2.0
+Jinja2==3.1.6
+kiwisolver==1.4.9
+MarkupSafe==3.0.3
+packaging==25.0
+pillow==12.0.0
+pyparsing==3.3.1
+python-dateutil==2.9.0.post0
+pytz==2025.2
+six==1.17.0
+tzdata==2025.3
+Werkzeug==3.1.4
+
+# Note: tkinter is part of Python's standard library (used in filter_fasta_gui.py)
+# Note: pathlib, re, hashlib, abc, dataclasses, typing, base64, io, tempfile, os, logging are all standard library modules
