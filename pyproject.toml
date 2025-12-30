@@ -1,0 +1,203 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "byu-core-ms-lab"
+version = "0.2.0"
+description = "Mass Spectrometry QC and analysis tools for BYU Fritz B. Burns Cancer Research Center MS Core Facility"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "BYU Fritz B. Burns Cancer Research Center MS Core Facility"},
+]
+maintainers = [
+    {name = "BYU MS Core Lab", email = "mscorelab@byu.edu"},
+]
+keywords = [
+    "mass-spectrometry",
+    "proteomics",
+    "data-analysis",
+    "visualization",
+    "quality-control",
+    "DIA-NN",
+    "bottom-up-proteomics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+
+# Core dependencies
+dependencies = [
+    "numpy>=2.4.0",
+    "pandas>=2.3.3",
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+    "flask>=3.1.2",
+    "flask-cors>=6.0.2",
+    "pillow>=12.0.0",
+]
+
+[project.optional-dependencies]
+# Development tools
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
+    "mypy>=1.13.0",
+    "black>=24.0.0",
+]
+
+# Jupyter notebook support
+jupyter = [
+    "jupyter>=1.1.1",
+    "ipykernel>=6.29.0",
+    "ipywidgets>=8.1.0",
+]
+
+# Web app deployment
+web = [
+    "gunicorn>=23.0.0",
+    "waitress>=3.0.0",  # Windows-compatible WSGI server
+]
+
+# Complete development environment (all extras)
+all = [
+    "byu-core-ms-lab[dev,jupyter,web]",
+]
+
+[project.urls]
+Homepage = "https://github.com/MSCoreLab/BYU-Core-MS-Lab"
+Repository = "https://github.com/MSCoreLab/BYU-Core-MS-Lab"
+Issues = "https://github.com/MSCoreLab/BYU-Core-MS-Lab/issues"
+Changelog = "https://github.com/MSCoreLab/BYU-Core-MS-Lab/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/MSCoreLab/BYU-Core-MS-Lab#readme"
+
+[project.scripts]
+# Command-line entry points
+mspp-web = "programs.mspp_web.launch_app:main"
+filter-fasta = "programs.pyscripts.filter_fasta_gui:main"
+
+[tool.setuptools]
+# Package discovery
+packages = ["programs"]
+
+[tool.setuptools.package-data]
+# Include non-Python files
+"*" = ["*.md", "*.txt", "*.yml", "*.yaml", "*.json", "*.tsv", "*.css", "*.html", "*.js", "*.tsx", "*.ts"]
+
+# Ruff configuration (linting & formatting)
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "W191",   # indentation contains tabs
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+# Black configuration (backup formatter)
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | node_modules
+)/
+'''
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "--verbose",
+    "--cov=programs",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+# MyPy configuration (type checking)
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Gradually enable
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+ignore_missing_imports = true
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["programs"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/node_modules/*",
+    "*/frontend/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

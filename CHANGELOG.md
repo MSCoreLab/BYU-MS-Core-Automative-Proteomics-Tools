@@ -1,19 +1,54 @@
 # Changelog
 
+## Overview
+This document summarizes the refactoring work done to improve code quality, eliminate duplication, and ensure feature parity between the web application and Jupyter notebook.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.1] - 2025-12-19
+# [0.1.3] - 2025-12-29
 
-**MSPP Web App - Refactoring Notes**
-**Date: December 19, 2024**
+### Added
+- Modern `pyproject.toml` configuration replacing `requirements.txt`
+  - Comprehensive project metadata with classifiers and URLs
+  - Optional dependency groups: `dev`, `jupyter`, `web`, `all`
+  - Command-line entry points: `mspp-web` and `filter-fasta`
+  - Development tool configurations (Ruff, Black, Pytest, MyPy, Coverage)
+- HEY_Astral dataset for downstream analysis
+  - FragPipe protein quantification matrices (Astral and Eclipse modes)
+  - MSConnect DIA-NN output files (E25/E100 samples at different parameters)
+  - Experiment annotation files for sample metadata
+- FragPipe Analyst exported visualizations
+  - Correlation plots, PCA analysis, heatmaps
+  - Missing value analysis, protein coverage plots
+  - Volcano plots (E100 vs E25 comparison)
+  - Upset plots, Venn diagrams, Jaccard similarity analysis
+  - Sample CV distributions and density plots
+- Occurrences results table (CSV) for protein identification tracking
 
-### Overview
-This document summarizes the refactoring work done to improve code quality, eliminate duplication, and ensure feature parity between the web application and Jupyter notebook.
+### Changed
+- Updated repository folder structure
+  - Moved plots from `data/plots/` to `plots/` for cleaner organization
+  - Centralized data files in `data/HEY_Astral/` with subdirectories
+- Enhanced Jupyter notebook (`MSPP_data_analysis.ipynb`)
+  - Added markdown documentation cells for better code clarity
+  - Removed cell outputs for cleaner version control
+  - Improved inline explanations of analysis steps
 
----
+### Documentation
+- Updated FA Workflow Tutorial with additional steps and screenshots
+  - Added Step 15.2 screenshot for enhanced visual guidance
+  - Improved clarity in workflow instructions
+- Updated project dependencies in `requirements.txt` for virtual environment compatibility
+
+### Technical
+- Package management modernization with PEP 517/518 compliance
+- Support for Python 3.10-3.14
+- Configured development tooling (linting, formatting, type checking, testing)
+
+# [0.1.2] - 2025-12-19
 
 ## Backend Refactoring (app.py)
 
@@ -370,7 +405,7 @@ The refactoring successfully:
 The codebase is now cleaner, more maintainable, and better documented for future development.
 
 
-## [0.1.1] - 2025-12-18
+# [0.1.1] - 2025-12-18
 
 ### Added
 - MSPP Web App with React + TypeScript frontend and Flask backend
@@ -404,7 +439,7 @@ The codebase is now cleaner, more maintainable, and better documented for future
 - Disabled Flask debug mode in production environment to prevent information disclosure
 - Added automated CodeQL analysis for continuous security monitoring
 
-## [0.1.0] - 2025-12-08
+# [0.1.0] - 2025-12-08
 
 ### Added
 - Initial repository structure
