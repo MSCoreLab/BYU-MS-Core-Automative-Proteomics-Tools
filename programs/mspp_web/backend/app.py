@@ -115,7 +115,6 @@ class DataProcessor:
 
     def _extract_mix_identifier(self, filename):
         """Extract mix identifier from filename, excluding E25/E100 prefix.
-        
         For 'report.pg_matrix_E25_30_4_440960_800.tsv', returns '30_4_440960_800'.
         This ensures E25 and E100 files from the same mix are grouped together.
         """
@@ -133,16 +132,13 @@ class DataProcessor:
 
     def _calculate_intensity_ratios(self, data, e25_file, e100_file, organism):
         """Calculate log2 intensity ratios (E25/E100) for consensus proteins.
-        
         For each consensus protein, calculate log2(E25_intensity / E100_intensity).
         This shows the fold change between replicates without HeLa normalization.
-        
         Args:
             data: Full DataFrame containing both samples
             e25_file: E25 sample file name
             e100_file: E100 sample file name
             organism: 'HeLa', 'E.coli', or 'Yeast'
-        
         Returns:
             Array of log2 ratios for consensus proteins, or None if insufficient data
         """
@@ -218,7 +214,6 @@ class DataProcessor:
 
     def calculate_sample_comparison_data(self, data):
         """Calculate log2 intensity ratios (E25/E100) for all organisms and mixes.
-        
         Returns:
             Dict with 'hela_results', 'ecoli_results', 'yeast_results', 'sorted_mixes'
             Each result is a list of (ratio_array, mix_id) tuples
@@ -302,11 +297,9 @@ class PlotGenerator:
 
     def _create_bar_chart_figure(self, data, figsize=(12, 7)):
         """Create bar chart matplotlib figure (reusable for display and export).
-        
         Args:
             data: DataFrame with protein data
             figsize: Tuple of (width, height) for figure size
-        
         Returns:
             Matplotlib figure object
         """
@@ -362,11 +355,9 @@ class PlotGenerator:
 
     def _create_comparison_figure(self, data, figsize=(18, 16)):
         """Create sample comparison matplotlib figure (reusable for display and export).
-        
         Args:
             data: DataFrame with protein data
             figsize: Tuple of (width, height) for figure size
-        
         Returns:
             Matplotlib figure object
         """
@@ -434,7 +425,6 @@ class PlotGenerator:
 
     def _plot_ratio_comparison(self, ax, results, sorted_mixes, title, color, reference_line):
         """Helper method to plot box plot for intensity ratios of one organism.
-        
         Args:
             ax: Matplotlib axis
             results: List of (ratio_array, mix_id) tuples
