@@ -4,10 +4,10 @@ MSPP Data Plotter - Simple Desktop Launcher
 Opens the app in your default browser - no extra dependencies needed!
 """
 
-import webbrowser
-import threading
 import sys
+import threading
 import time
+import webbrowser
 from pathlib import Path
 
 # Add backend to path
@@ -26,28 +26,28 @@ if __name__ == '__main__':
     print("=" * 60)
     print("🚀 MSPP Data Plotter - Desktop Application")
     print("=" * 60)
-    
+
     # Start Flask in background
     print("\n⏳ Starting backend server...")
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
-    
+
     # Wait for Flask to start
     time.sleep(2)
-    
+
     print("✅ Backend ready on http://localhost:5000")
     print("🎨 Opening application in your default browser...\n")
-    
+
     # Open in default browser only
     webbrowser.open('http://localhost:5000')
-    
+
     print("=" * 60)
     print("✨ Application is running!")
     print("=" * 60)
     print("\n📌 The app should open in your browser automatically.")
     print("📌 If not, manually visit: http://localhost:5000")
     print("\n⚠️  Press CTRL+C to stop the server when done.\n")
-    
+
     try:
         # Keep the server running
         while True:
