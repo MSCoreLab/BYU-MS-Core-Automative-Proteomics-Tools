@@ -4,7 +4,7 @@
 
 This tutorial guides you through processing DIA data with Fragpipe and analyzing results with Fragpipe Analyst.
 
-⚠️ **Critical:** Fragpipe Analyst **only** works with data processed by Fragpipe. Download Fragpipe from https://fragpipe.nesvilab.org/ before starting.
+⚠️ **Critical:** Fragpipe Analyst **only** works with data processed by Fragpipe. Download Fragpipe from <https://fragpipe.nesvilab.org/> before starting.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Before starting this tutorial, ensure you have:
 
 ### Software
 
--   **Fragpipe** installed on your computer (download from https://fragpipe.nesvilab.org/)
+-   **Fragpipe** installed on your computer (download from <https://fragpipe.nesvilab.org/>)
 -   Fragpipe will prompt you to download additional components (MSFragger, DIA-NN, Python) during setup
 
 ### Important Notes
@@ -284,7 +284,7 @@ When processing completes successfully, you should see a **"DONE"** message in t
 
 ## How to use Fragpipe Analyst to analyze your processed data {#how-to-use-fragpipe-analyst-to-analyze-your-processed-data}
 
-**Finding the output files**
+### Finding the output files
 
 The key output files for Fragpipe Analyst are in the **"fragpipe"** subfolder. These output files are needed for Fragpipe Analyst to locate the protein IDs and categorize them into species and other useful categories.
 
@@ -310,7 +310,7 @@ Open the **"fragpipe"** subfolder to find the required files:
 
 ### Step 24: Open Fragpipe Analyst
 
-Open https://fragpipe-analyst.org/ in your browser:
+Open <https://fragpipe-analyst.org/> in your browser:
 
 ![Fragpipe Analyst homepage](./screenshots/Step_24.png)
 
@@ -369,7 +369,7 @@ E25_Cycle20_Iso2_MZ350960_AGC600       2            ❌ 48 unique conditions tot
 
 **Solution:** Group your samples by the **biological variable you want to compare**, treating other experimental parameters as replicates:
 
-**Compare E. coli concentrations (E100 vs E25)**
+##### Compare E. coli concentrations (E100 vs E25)
 
 ```         
 file                             sample_name                                condition    replicate
@@ -384,7 +384,7 @@ Result: 2 conditions (E100, E25) × 24 samples each ✅
 
 ⚠️ **Key principle:** Group samples by your primary biological question. Other parameters become replicates.
 
-#### Step-by-step modification process:
+#### Step-by-step modification process
 
 1.  **Open `experiment.annotation.tsv` in Excel, or run it with a Python script**
 2.  **Create unique `sample_name` values** by combining filename information with the original sample_name
