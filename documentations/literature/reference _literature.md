@@ -1,1 +1,0 @@
-This literature outlines the level of quantitative proteomics QC that we aspire to: [A Framework for Quality Control in Quantitative Proteomics](https://pubs.acs.org/doi/10.1021/acs.jproteome.4c00363)

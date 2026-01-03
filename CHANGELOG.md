@@ -8,7 +8,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-# [0.1.3] - 2025-12-29
+## [0.2.0] - 2026-01-02
+
+### Added
+- **Total Ion Current (TIC) Analysis Module**
+  - New `TICAnalyzer` class for mzML file processing using pyteomics
+  - Extraction of MS1-level TIC data from mzML files
+  - TIC comparison visualization across multiple samples
+  - Caching system for improved performance on large files
+- **TIC Web Interface**
+  - New "TIC Analysis" tab in React frontend
+  - mzML file upload support (drag-and-drop)
+  - Real-time TIC plot generation
+  - Export TIC plots as high-resolution PNG (300 DPI)
+- **New API Endpoints**
+  - `POST /api/upload/mzml` - Upload mzML files
+  - `GET /api/mzml/files` - List uploaded mzML files
+  - `DELETE /api/mzml/files` - Clear mzML files and cache
+  - `POST /api/plot/tic` - Generate TIC comparison plot
+  - `POST /api/export/tic` - Export TIC plot
+- **Dependencies**
+  - Added `pyteomics>=4.7.5` for mzML parsing
+  - Added `ruff>=0.14.10` for code linting and formatting
+
+### Changed
+- Enhanced frontend with tabbed navigation (Protein Analysis | TIC Analysis)
+- Improved plot export filename handling for different plot types
+- Reorganized import statements for better code organization (Ruff compliance)
+- Updated `pyproject.toml` with pyteomics and ruff dependencies
+
+### Fixed
+- Code style issues across the project (auto-fixed 215 Ruff violations)
+- Import organization and formatting inconsistencies
+- Unnecessary `dict()` calls replaced with dictionary literals
+- Simplified exception handling using `contextlib.suppress()`
+
+### Technical
+- Integrated pyteomics library for MS data file parsing
+- Implemented streaming mzML file reading for memory efficiency
+- Added separate state management for TSV and mzML file uploads
+- Color-coded multi-sample TIC plot generation using matplotlib
+
+## [0.1.3] - 2025-12-29
 
 ### Added
 - Modern `pyproject.toml` configuration replacing `requirements.txt`

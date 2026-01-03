@@ -49,6 +49,7 @@ dependencies = [
     "flask-cors>=6.0.2",
     "pillow>=12.0.0",
     "pyteomics>=4.7.5",
+    "lxml>=5.0.0",
     "ruff>=0.14.10",
 ]
 

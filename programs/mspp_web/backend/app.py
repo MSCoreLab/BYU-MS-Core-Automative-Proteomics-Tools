@@ -5,6 +5,7 @@ Provides REST endpoints for MS proteomics data visualization
 """
 
 import base64
+import contextlib
 import io
 import logging
 import os
@@ -13,13 +14,14 @@ import tempfile
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from pyteomics import mzml
 
 matplotlib.use('Agg')  # Non-interactive backend
-import matplotlib.pyplot as plt
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 CORS(app)  # Enable CORS for React dev server
@@ -213,10 +215,12 @@ class DataProcessor:
         return counts
 
     def calculate_sample_comparison_data(self, data):
-        """Calculate log2 intensity ratios (E25/E100) for all organisms and mixes.
+        """Calculate log2 intensity ratios between samples for all organisms.
+        Automatically infers low/high intensity samples by calculating median intensities.
+        
         Returns:
-            Dict with 'hela_results', 'ecoli_results', 'yeast_results', 'sorted_mixes'
-            Each result is a list of (ratio_array, mix_id) tuples
+            Dict with 'hela_results', 'ecoli_results', 'yeast_results', 'sample_pairs'
+            Each result is a list of (ratio_array, sample_pair_label) tuples
         """
         # Get all sample files
         sample_files = sorted(data["Source_File"].unique())
@@ -224,63 +228,76 @@ class DataProcessor:
         if len(sample_files) == 0:
             raise ValueError("No sample files found in data")
 
-        # Group samples by mix identifier
-        mix_groups = {}
+        # Calculate median intensity for each sample to infer low/high expression
+        sample_medians = {}
         for source_file in sample_files:
-            mix_id = self._extract_mix_identifier(source_file)
-            if mix_id not in mix_groups:
-                mix_groups[mix_id] = []
-            mix_groups[mix_id].append(source_file)
+            sample_data = data[data["Source_File"] == source_file]
+            
+            # Get the intensity column for this sample
+            intensity_col = self.file_to_raw_column.get(source_file)
+            if intensity_col and intensity_col in sample_data.columns:
+                # Calculate median of non-zero intensities
+                intensities = sample_data[intensity_col]
+                valid_intensities = intensities[(intensities > 0) & (intensities.notna())]
+                if len(valid_intensities) > 0:
+                    sample_medians[source_file] = valid_intensities.median()
+                else:
+                    sample_medians[source_file] = 0
+            else:
+                sample_medians[source_file] = 0
 
-        sorted_mixes = sorted(mix_groups.keys())
+        # Sort samples by median intensity
+        sorted_samples = sorted(sample_medians.keys(), key=lambda x: sample_medians[x])
 
-        # Calculate intensity ratios for each organism
+        # Pair adjacent samples: lower median = "low", higher median = "high"
+        # This works for 2 samples or creates multiple pairs for more samples
+        sample_pairs = []
+        for i in range(0, len(sorted_samples) - 1):
+            low_sample = sorted_samples[i]
+            high_sample = sorted_samples[i + 1]
+            sample_pairs.append((low_sample, high_sample))
+
+        if len(sample_pairs) == 0:
+            raise ValueError("Need at least 2 samples to create comparisons")
+
+        # Calculate intensity ratios for each organism and sample pair
         hela_results = []
         ecoli_results = []
         yeast_results = []
 
-        for mix_id in sorted_mixes:
-            mix_samples = sorted(mix_groups[mix_id])
+        for low_sample, high_sample in sample_pairs:
+            # Create descriptive label showing median intensities
+            low_median = sample_medians[low_sample]
+            high_median = sample_medians[high_sample]
+            pair_label = f"{Path(low_sample).stem} (med:{low_median:.2e}) vs {Path(high_sample).stem} (med:{high_median:.2e})"
 
-            # Find E25 and E100 files
-            e25_file = None
-            e100_file = None
+            # Calculate log2 ratios for each organism (low/high)
+            hela_ratios = self._calculate_intensity_ratios(
+                data, low_sample, high_sample, "HeLa"
+            )
+            ecoli_ratios = self._calculate_intensity_ratios(
+                data, low_sample, high_sample, "E.coli"
+            )
+            yeast_ratios = self._calculate_intensity_ratios(
+                data, low_sample, high_sample, "Yeast"
+            )
 
-            for source_file in mix_samples:
-                upper = source_file.upper()
-                if re.search(r'E[-_]?25', upper):
-                    e25_file = source_file
-                elif re.search(r'E[-_]?100', upper):
-                    e100_file = source_file
-
-            if e25_file and e100_file:
-                # Calculate log2 ratios for each organism
-                hela_ratios = self._calculate_intensity_ratios(
-                    data, e25_file, e100_file, "HeLa"
-                )
-                ecoli_ratios = self._calculate_intensity_ratios(
-                    data, e25_file, e100_file, "E.coli"
-                )
-                yeast_ratios = self._calculate_intensity_ratios(
-                    data, e25_file, e100_file, "Yeast"
-                )
-
-                # Add results (one box per run)
-                if hela_ratios is not None:
-                    hela_results.append((hela_ratios, mix_id))
-                if ecoli_ratios is not None:
-                    ecoli_results.append((ecoli_ratios, mix_id))
-                if yeast_ratios is not None:
-                    yeast_results.append((yeast_ratios, mix_id))
+            # Add results (one box per sample pair)
+            if hela_ratios is not None:
+                hela_results.append((hela_ratios, pair_label))
+            if ecoli_ratios is not None:
+                ecoli_results.append((ecoli_ratios, pair_label))
+            if yeast_ratios is not None:
+                yeast_results.append((yeast_ratios, pair_label))
 
         if not hela_results and not ecoli_results and not yeast_results:
-            raise ValueError("No valid E25/E100 pairs found")
+            raise ValueError("No valid sample pairs with sufficient data found")
 
         return {
             'hela_results': hela_results,
             'ecoli_results': ecoli_results,
             'yeast_results': yeast_results,
-            'sorted_mixes': sorted_mixes
+            'sample_pairs': sample_pairs
         }
 
 
@@ -367,7 +384,6 @@ class PlotGenerator:
         hela_results = comparison_data['hela_results']
         ecoli_results = comparison_data['ecoli_results']
         yeast_results = comparison_data['yeast_results']
-        sorted_mixes = comparison_data['sorted_mixes']
 
         # Create figure with 3 vertical subplots
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=figsize)
@@ -375,7 +391,7 @@ class PlotGenerator:
         # Plot HeLa comparison (top)
         if hela_results:
             self._plot_ratio_comparison(
-                ax1, hela_results, sorted_mixes,
+                ax1, hela_results,
                 title="HeLa Log2 Intensity Ratio",
                 color="#9b59b6",  # Purple
                 reference_line=0  # Expected: 0 (constant concentration)
@@ -387,7 +403,7 @@ class PlotGenerator:
         # Plot E.coli comparison (middle)
         if ecoli_results:
             self._plot_ratio_comparison(
-                ax2, ecoli_results, sorted_mixes,
+                ax2, ecoli_results,
                 title="E.coli Log2 Intensity Ratio",
                 color="#e67e22",  # Orange
                 reference_line=-2  # Expected: -2 (log2(25/100))
@@ -399,7 +415,7 @@ class PlotGenerator:
         # Plot Yeast comparison (bottom)
         if yeast_results:
             self._plot_ratio_comparison(
-                ax3, yeast_results, sorted_mixes,
+                ax3, yeast_results,
                 title="Yeast Log2 Intensity Ratio",
                 color="#16a085",  # Teal
                 reference_line=1  # Expected: 1 (log2(150/75))
@@ -423,12 +439,11 @@ class PlotGenerator:
         fig = self._create_comparison_figure(data)
         return self._fig_to_base64(fig)
 
-    def _plot_ratio_comparison(self, ax, results, sorted_mixes, title, color, reference_line):
+    def _plot_ratio_comparison(self, ax, results, title, color, reference_line):
         """Helper method to plot box plot for intensity ratios of one organism.
         Args:
             ax: Matplotlib axis
-            results: List of (ratio_array, mix_id) tuples
-            sorted_mixes: List of mix identifiers
+            results: List of (ratio_array, sample_pair_label) tuples
             title: Plot title
             color: Box plot color
             reference_line: Y-value for expected ratio reference line
@@ -445,13 +460,13 @@ class PlotGenerator:
             patch_artist=True,
             showfliers=True,
             showmeans=True,
-            flierprops=dict(
-                marker="o", markerfacecolor=color, markersize=3,
-                alpha=0.4, markeredgecolor="none"
-            ),
-            meanprops=dict(
-                marker="s", markerfacecolor="white", markeredgecolor="white", markersize=5
-            ),
+            flierprops={
+                'marker': "o", 'markerfacecolor': color, 'markersize': 3,
+                'alpha': 0.4, 'markeredgecolor': "none"
+            },
+            meanprops={
+                'marker': "s", 'markerfacecolor': "white", 'markeredgecolor': "white", 'markersize': 5
+            },
         )
 
         # Color all boxes the same
@@ -471,8 +486,8 @@ class PlotGenerator:
             ax.text(
                 i + 1, median_val, f"{median_val:.2f}",
                 fontsize=9, va="bottom", ha="center", color="white",
-                fontweight="bold", bbox=dict(boxstyle="round,pad=0.3",
-                facecolor="black", alpha=0.5, edgecolor="none")
+                fontweight="bold", bbox={'boxstyle': "round,pad=0.3",
+                'facecolor': "black", 'alpha': 0.5, 'edgecolor': "none"}
             )
 
         # Add reference line for expected ratio
@@ -498,10 +513,160 @@ class PlotGenerator:
         return img_base64
 
 
+class TICAnalyzer:
+    """Handles mzML file processing and TIC extraction."""
+
+    def __init__(self):
+        self.cached_tic_data = {}
+
+    def extract_tic_from_mzml(self, file_path):
+        """Extract Total Ion Current (TIC) from an mzML file.
+
+        For DIA data, processes all scans regardless of MS level.
+        For DDA data, processes MS1 scans only.
+
+        Args:
+            file_path: Path to the mzML file
+
+        Returns:
+            pd.DataFrame with columns: scan_number, retention_time, tic
+        """
+        # Check cache first
+        if file_path in self.cached_tic_data:
+            return self.cached_tic_data[file_path]
+
+        tic_data = []
+
+        try:
+            # Open mzML file and iterate through scans
+            with mzml.read(file_path) as reader:
+                scan_count = 0
+                ms1_count = 0
+                rt_values = []  # Track RT values for unit detection
+
+                for scan in reader:
+                    scan_count += 1
+
+                    # Get MS level (try different possible keys)
+                    ms_level = scan.get('ms level', scan.get('msLevel', 2))
+
+                    if ms_level == 1:
+                        ms1_count += 1
+
+                    try:
+                        # Get scan index
+                        scan_num = scan.get('index', scan.get('num', scan_count))
+
+                        # Get retention time (try different possible locations)
+                        rt = None
+                        if 'scanList' in scan and 'scan' in scan['scanList']:
+                            rt = scan['scanList']['scan'][0].get('scan start time')
+                        if rt is None and 'retentionTime' in scan:
+                            rt = scan['retentionTime']
+                        if rt is None:
+                            rt = scan_count  # Fallback to scan number
+
+                        # Calculate TIC: sum of all intensities in the scan
+                        intensities = scan.get('intensity array', [])
+                        tic = np.sum(intensities)
+
+                        tic_data.append({
+                            'scan_number': scan_num,
+                            'retention_time': rt,
+                            'tic': tic
+                        })
+                        rt_values.append(rt)
+                    except Exception as scan_error:
+                        logging.warning(f"Error processing scan {scan_count}: {scan_error}")
+                        continue
+
+                # Detect RT units and convert if necessary
+                if rt_values:
+                    max_rt = max(rt_values)
+                    min_rt = min(rt_values)
+                    
+                    # If max RT > 500, likely in seconds (typical runs are < 480 min)
+                    if max_rt > 500:
+                        logging.warning(f"Detected RT in seconds (max: {max_rt:.1f}s). Converting to minutes.")
+                        for data_point in tic_data:
+                            data_point['retention_time'] /= 60.0
+                        max_rt /= 60.0
+                        min_rt /= 60.0
+                    
+                    # Sanity check for unusual RT ranges
+                    if max_rt > 600:
+                        logging.warning(f"⚠️  Unusual retention time range detected: {min_rt:.1f} - {max_rt:.1f} min. "
+                                      f"Typical LC-MS runs are 60-480 minutes. Check acquisition metadata.")
+                    
+                    logging.info(f"Processed {file_path}: {scan_count} total scans, {ms1_count} MS1 scans (DIA: {ms1_count == 0})")
+                    logging.info(f"  RT range: {min_rt:.2f} - {max_rt:.2f} min")
+                else:
+                    logging.info(f"Processed {file_path}: {scan_count} total scans, {ms1_count} MS1 scans (DIA: {ms1_count == 0})")
+
+            if len(tic_data) == 0:
+                logging.warning(f"No scans with intensity data found in {file_path}")
+                return None
+
+            df = pd.DataFrame(tic_data)
+            # Cache the result
+            self.cached_tic_data[file_path] = df
+            logging.info(f"Extracted TIC data: {len(df)} points, RT range: {df['retention_time'].min():.2f}-{df['retention_time'].max():.2f} min")
+            return df
+
+        except Exception as e:
+            logging.error(f"Error processing mzML file {file_path}: {e}", exc_info=True)
+            return None
+
+    def create_tic_plot(self, tic_dict, figsize=(14, 8)):
+        """Create TIC comparison plot for multiple samples.
+
+        Args:
+            tic_dict: Dict mapping sample_name -> tic_dataframe
+            figsize: Tuple of (width, height)
+
+        Returns:
+            Matplotlib figure object
+        """
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Color palette for different samples
+        colors = plt.cm.tab10(np.linspace(0, 1, len(tic_dict)))
+
+        for (sample_name, tic_df), color in zip(tic_dict.items(), colors):
+            if tic_df is not None and len(tic_df) > 0:
+                ax.plot(tic_df['retention_time'], tic_df['tic'],
+                       label=sample_name, alpha=0.8, linewidth=1.5, color=color)
+
+        ax.set_xlabel('Retention Time (min)', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Total Ion Current', fontsize=12, fontweight='bold')
+        ax.set_title('TIC Comparison Across Samples', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10, loc='best')
+        ax.grid(True, alpha=0.3)
+        ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0))
+        plt.tight_layout()
+
+        return fig
+
+    def _fig_to_base64(self, fig):
+        """Convert matplotlib figure to base64 encoded PNG."""
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close(fig)
+        return img_base64
+
+    def clear_cache(self):
+        """Clear cached TIC data."""
+        self.cached_tic_data.clear()
+
+
 # Global instances
 processor = DataProcessor()
 plotter = PlotGenerator(processor)
+tic_analyzer = TICAnalyzer()
 uploaded_files = {}  # Store uploaded files temporarily
+uploaded_mzml_files = {}  # Store uploaded mzML files separately
 
 
 @app.route('/')
@@ -549,10 +714,8 @@ def list_files():
 def clear_files():
     """Clear all uploaded files."""
     for filepath in uploaded_files.values():
-        try:
+        with contextlib.suppress(Exception):
             Path(filepath).unlink(missing_ok=True)
-        except Exception:
-            pass
     uploaded_files.clear()
     return jsonify({'message': 'All files cleared'})
 
@@ -697,6 +860,117 @@ def export_all_plots():
         logging.exception("Unexpected error while exporting all plots")
         return jsonify({
             'error': 'An internal error occurred while exporting plots.'
+        }), 500
+
+
+# ==================== TIC Analysis Endpoints ====================
+
+@app.route('/api/upload/mzml', methods=['POST'])
+def upload_mzml_files():
+    """Handle mzML file uploads for TIC analysis."""
+    if 'files' not in request.files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    files = request.files.getlist('files')
+    temp_paths = []
+
+    for file in files:
+        if file.filename.endswith('.mzML'):
+            # Save to temp directory
+            temp_path = Path(tempfile.gettempdir()) / file.filename
+            file.save(temp_path)
+            temp_paths.append(str(temp_path))
+            uploaded_mzml_files[file.filename] = str(temp_path)
+
+    return jsonify({
+        'message': f'{len(temp_paths)} mzML files uploaded successfully',
+        'files': [Path(p).name for p in temp_paths]
+    })
+
+
+@app.route('/api/mzml/files', methods=['GET'])
+def list_mzml_files():
+    """List uploaded mzML files."""
+    return jsonify({'files': list(uploaded_mzml_files.keys())})
+
+
+@app.route('/api/mzml/files', methods=['DELETE'])
+def clear_mzml_files():
+    """Clear all uploaded mzML files."""
+    for filepath in uploaded_mzml_files.values():
+        with contextlib.suppress(Exception):
+            Path(filepath).unlink(missing_ok=True)
+    uploaded_mzml_files.clear()
+    tic_analyzer.clear_cache()
+    return jsonify({'message': 'All mzML files cleared'})
+
+
+@app.route('/api/plot/tic', methods=['POST'])
+def generate_tic_plot():
+    """Generate TIC comparison plot from uploaded mzML files."""
+    if not uploaded_mzml_files:
+        return jsonify({'error': 'No mzML files uploaded'}), 400
+
+    try:
+        # Extract TIC from each file
+        tic_dict = {}
+        for filename, filepath in uploaded_mzml_files.items():
+            sample_name = Path(filename).stem
+            tic_df = tic_analyzer.extract_tic_from_mzml(filepath)
+            if tic_df is not None:
+                tic_dict[sample_name] = tic_df
+
+        if not tic_dict:
+            return jsonify({'error': 'Failed to extract TIC data from any file'}), 400
+
+        # Generate plot
+        fig = tic_analyzer.create_tic_plot(tic_dict)
+        img_base64 = tic_analyzer._fig_to_base64(fig)
+
+        return jsonify({'image': img_base64})
+
+    except Exception:
+        logging.exception("Unexpected error while generating TIC plot")
+        return jsonify({
+            'error': 'An internal error occurred while generating the TIC plot.'
+        }), 500
+
+
+@app.route('/api/export/tic', methods=['POST'])
+def export_tic_plot():
+    """Export TIC plot as PNG file."""
+    if not uploaded_mzml_files:
+        return jsonify({'error': 'No mzML files uploaded'}), 400
+
+    try:
+        from flask import send_file
+
+        # Extract TIC from each file
+        tic_dict = {}
+        for filename, filepath in uploaded_mzml_files.items():
+            sample_name = Path(filename).stem
+            tic_df = tic_analyzer.extract_tic_from_mzml(filepath)
+            if tic_df is not None:
+                tic_dict[sample_name] = tic_df
+
+        if not tic_dict:
+            return jsonify({'error': 'Failed to extract TIC data from any file'}), 400
+
+        # Generate high-DPI plot
+        fig = tic_analyzer.create_tic_plot(tic_dict, figsize=(14, 8))
+
+        # Save to bytes buffer
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+
+        return send_file(buf, mimetype='image/png', as_attachment=True, download_name='tic_comparison.png')
+
+    except Exception:
+        logging.exception("Unexpected error while exporting TIC plot")
+        return jsonify({
+            'error': 'An internal error occurred while exporting the TIC plot.'
         }), 500
 
 
