@@ -30,6 +30,17 @@ CORS(app)  # Enable CORS for React dev server
 plt.style.use('dark_background')
 
 
+# Shared utility functions
+def fig_to_base64(fig):
+    """Convert matplotlib figure to base64 encoded PNG."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    return img_base64
+
+
 class DataProcessor:
     """Handles all data loading, processing, and calculation logic."""
 
@@ -101,36 +112,6 @@ class DataProcessor:
         """Clear cached data."""
         self.cached_data = None
         self.cached_file_list = []
-
-    def _get_organism_data(self, file_data, intensity_col, organism):
-        """Extract positive numeric intensity data for an organism."""
-        data = pd.to_numeric(
-            file_data[file_data['Organism'] == organism][intensity_col],
-            errors='coerce'
-        )
-        return data[data > 0].dropna()
-
-    def _get_hela_median(self, file_data, intensity_col):
-        """Get HeLa median for normalization."""
-        hela_data = self._get_organism_data(file_data, intensity_col, 'HeLa')
-        return hela_data.median() if len(hela_data) > 0 else 1.0
-
-    def _extract_mix_identifier(self, filename):
-        """Extract mix identifier from filename, excluding E25/E100 prefix.
-        For 'report.pg_matrix_E25_30_4_440960_800.tsv', returns '30_4_440960_800'.
-        This ensures E25 and E100 files from the same mix are grouped together.
-        """
-        # Remove E25/E100 prefix first to avoid capturing it in the mix ID
-        cleaned = re.sub(r'E[-_]?\d+[-_]?', '', filename, flags=re.IGNORECASE)
-
-        # Extract the numeric pattern (e.g., 30_4_440960_800)
-        match = re.search(r'(\d+_\d+_\d+_\d+)', cleaned)
-        if match:
-            return match.group(1)
-
-        # Fallback: return cleaned filename
-        cleaned = cleaned.replace('report.pg_matrix_', '').replace('.tsv', '')
-        return cleaned if cleaned else filename
 
     def _calculate_intensity_ratios(self, data, e25_file, e100_file, organism):
         """Calculate log2 intensity ratios (E25/E100) for consensus proteins.
@@ -215,9 +196,13 @@ class DataProcessor:
         return counts
 
     def calculate_sample_comparison_data(self, data):
-        """Calculate log2 intensity ratios between samples for all organisms.
-        Automatically infers low/high intensity samples by calculating median intensities.
-        
+        """Calculate log2 intensity ratios between E25/E100 sample groups.
+
+        Strategy:
+        1. First, try to detect E25/E100 from explicit filename patterns
+        2. If not found, automatically categorize using E.coli median intensities
+        3. Remember: E25 ↔ Y150 (higher yeast), E100 ↔ Y75 (lower yeast)
+
         Returns:
             Dict with 'hela_results', 'ecoli_results', 'yeast_results', 'sample_pairs'
             Each result is a list of (ratio_array, sample_pair_label) tuples
@@ -228,58 +213,116 @@ class DataProcessor:
         if len(sample_files) == 0:
             raise ValueError("No sample files found in data")
 
-        # Calculate median intensity for each sample to infer low/high expression
-        sample_medians = {}
+        if len(sample_files) < 2:
+            raise ValueError("Need at least 2 samples to create E25/E100 comparisons")
+
+        # Strategy 1: Try to detect E25/E100 from filenames (explicit naming)
+        e25_samples_explicit = []
+        e100_samples_explicit = []
+        unclassified_samples = []
+
         for source_file in sample_files:
-            sample_data = data[data["Source_File"] == source_file]
-            
-            # Get the intensity column for this sample
-            intensity_col = self.file_to_raw_column.get(source_file)
-            if intensity_col and intensity_col in sample_data.columns:
-                # Calculate median of non-zero intensities
-                intensities = sample_data[intensity_col]
-                valid_intensities = intensities[(intensities > 0) & (intensities.notna())]
-                if len(valid_intensities) > 0:
-                    sample_medians[source_file] = valid_intensities.median()
-                else:
-                    sample_medians[source_file] = 0
+            upper = source_file.upper()
+            # Check for E25 or Y150 patterns (same samples)
+            if re.search(r'E[-_]?25|Y[-_]?150', upper):
+                e25_samples_explicit.append(source_file)
+            # Check for E100 or Y75 patterns (same samples)
+            elif re.search(r'E[-_]?100|Y[-_]?75', upper):
+                e100_samples_explicit.append(source_file)
             else:
-                sample_medians[source_file] = 0
+                unclassified_samples.append(source_file)
 
-        # Sort samples by median intensity
-        sorted_samples = sorted(sample_medians.keys(), key=lambda x: sample_medians[x])
+        # If we found explicit naming for all samples, use it
+        if len(e25_samples_explicit) > 0 and len(e100_samples_explicit) > 0 and len(unclassified_samples) == 0:
+            e25_samples = sorted(e25_samples_explicit)
+            e100_samples = sorted(e100_samples_explicit)
+            categorization_method = "explicit naming (E25/E100/Y150/Y75)"
+            logging.info(f"Using explicit sample naming: E25/Y150={[Path(s).stem for s in e25_samples]}, "
+                        f"E100/Y75={[Path(s).stem for s in e100_samples]}")
+        else:
+            # Strategy 2: Fallback to automatic categorization using E.coli median
+            logging.info("No explicit E25/E100 naming found. Using E.coli median-based categorization.")
+            categorization_method = "E.coli median auto-detection"
 
-        # Pair adjacent samples: lower median = "low", higher median = "high"
-        # This works for 2 samples or creates multiple pairs for more samples
+            # Calculate median E.coli intensity for each sample
+            ecoli_medians = {}
+            for source_file in sample_files:
+                sample_data = data[data["Source_File"] == source_file]
+
+                # Filter for E.coli proteins only
+                ecoli_data = sample_data[sample_data["Organism"] == "E.coli"]
+
+                # Get the intensity column for this sample
+                intensity_col = self.file_to_raw_column.get(source_file)
+                if intensity_col and intensity_col in ecoli_data.columns:
+                    # Calculate median of non-zero E.coli intensities
+                    intensities = ecoli_data[intensity_col]
+                    valid_intensities = intensities[(intensities > 0) & (intensities.notna())]
+                    if len(valid_intensities) > 0:
+                        ecoli_medians[source_file] = valid_intensities.median()
+                    else:
+                        ecoli_medians[source_file] = 0
+                else:
+                    ecoli_medians[source_file] = 0
+
+            # Sort samples by E.coli median intensity
+            sorted_samples = sorted(ecoli_medians.keys(), key=lambda x: ecoli_medians[x])
+
+            # Split into E25 (lower half) and E100 (upper half) groups
+            n_samples = len(sorted_samples)
+            split_point = n_samples // 2
+
+            e25_samples = sorted_samples[:split_point] if split_point > 0 else []
+            e100_samples = sorted_samples[split_point:]
+
+            if len(e25_samples) == 0 or len(e100_samples) == 0:
+                raise ValueError("Could not split samples into E25/E100 groups. Need at least 2 samples.")
+
+            logging.info(f"Auto-categorized samples: E25/Y150={[Path(s).stem for s in e25_samples]}, "
+                        f"E100/Y75={[Path(s).stem for s in e100_samples]}")
+
+        # Pair E25 with E100 samples
+        # For uneven groups, pair as many as possible
         sample_pairs = []
-        for i in range(0, len(sorted_samples) - 1):
-            low_sample = sorted_samples[i]
-            high_sample = sorted_samples[i + 1]
-            sample_pairs.append((low_sample, high_sample))
-
-        if len(sample_pairs) == 0:
-            raise ValueError("Need at least 2 samples to create comparisons")
+        for i in range(min(len(e25_samples), len(e100_samples))):
+            e25_sample = e25_samples[i]
+            e100_sample = e100_samples[i]
+            sample_pairs.append((e25_sample, e100_sample))
 
         # Calculate intensity ratios for each organism and sample pair
         hela_results = []
         ecoli_results = []
         yeast_results = []
 
-        for low_sample, high_sample in sample_pairs:
-            # Create descriptive label showing median intensities
-            low_median = sample_medians[low_sample]
-            high_median = sample_medians[high_sample]
-            pair_label = f"{Path(low_sample).stem} (med:{low_median:.2e}) vs {Path(high_sample).stem} (med:{high_median:.2e})"
+        for e25_sample, e100_sample in sample_pairs:
+            # Create label based on categorization method
+            e25_name = Path(e25_sample).stem
+            e100_name = Path(e100_sample).stem
 
-            # Calculate log2 ratios for each organism (low/high)
+            # Only create labels if using explicit naming
+            if categorization_method == "explicit naming (E25/E100/Y150/Y75)":
+                # Use condition names from filenames for labels
+                if len(sample_pairs) == 1:
+                    pair_label = f"{e25_name} vs {e100_name}"
+                else:
+                    pair_label = f"{e25_name} vs {e100_name}"
+            else:
+                # No label for auto-detection (no legend will be shown)
+                pair_label = None
+
+            # Calculate log2 ratios for each organism (E25/E100)
+            # All ratios calculated using CONSENSUS PROTEINS only
+            # HeLa: Expected ~0 (constant concentration, sanity check)
+            # E.coli: Expected ~-2 (log2(25/100) ≈ -2.0)
+            # Yeast: Expected ~1 (log2(150/75) = 1.0)
             hela_ratios = self._calculate_intensity_ratios(
-                data, low_sample, high_sample, "HeLa"
+                data, e25_sample, e100_sample, "HeLa"
             )
             ecoli_ratios = self._calculate_intensity_ratios(
-                data, low_sample, high_sample, "E.coli"
+                data, e25_sample, e100_sample, "E.coli"
             )
             yeast_ratios = self._calculate_intensity_ratios(
-                data, low_sample, high_sample, "Yeast"
+                data, e25_sample, e100_sample, "Yeast"
             )
 
             # Add results (one box per sample pair)
@@ -291,7 +334,9 @@ class DataProcessor:
                 yeast_results.append((yeast_ratios, pair_label))
 
         if not hela_results and not ecoli_results and not yeast_results:
-            raise ValueError("No valid sample pairs with sufficient data found")
+            raise ValueError("No valid E25/E100 sample pairs with sufficient data found")
+
+        logging.info(f"Sample comparison using {categorization_method}: {len(sample_pairs)} pairs created")
 
         return {
             'hela_results': hela_results,
@@ -368,7 +413,7 @@ class PlotGenerator:
     def create_bar_chart(self, data):
         """Create and return bar chart as base64 image."""
         fig = self._create_bar_chart_figure(data)
-        return self._fig_to_base64(fig)
+        return fig_to_base64(fig)
 
     def _create_comparison_figure(self, data, figsize=(18, 16)):
         """Create sample comparison matplotlib figure (reusable for display and export).
@@ -392,9 +437,9 @@ class PlotGenerator:
         if hela_results:
             self._plot_ratio_comparison(
                 ax1, hela_results,
-                title="HeLa Log2 Intensity Ratio",
+                title="HeLa Log2 Intensity Ratio (E25/E100 = constant)",
                 color="#9b59b6",  # Purple
-                reference_line=0  # Expected: 0 (constant concentration)
+                reference_line=0  # Expected: 0 (constant concentration - sanity check)
             )
         else:
             ax1.text(0.5, 0.5, "No HeLa data", ha="center", va="center",
@@ -404,9 +449,9 @@ class PlotGenerator:
         if ecoli_results:
             self._plot_ratio_comparison(
                 ax2, ecoli_results,
-                title="E.coli Log2 Intensity Ratio",
+                title="E.coli Log2 Intensity Ratio (E25/E100)",
                 color="#e67e22",  # Orange
-                reference_line=-2  # Expected: -2 (log2(25/100))
+                reference_line=-2  # Expected: -2 (log2(25/100) ≈ -2.0)
             )
         else:
             ax2.text(0.5, 0.5, "No E.coli data", ha="center", va="center",
@@ -416,9 +461,9 @@ class PlotGenerator:
         if yeast_results:
             self._plot_ratio_comparison(
                 ax3, yeast_results,
-                title="Yeast Log2 Intensity Ratio",
+                title="Yeast Log2 Intensity Ratio (Y150/Y75)",
                 color="#16a085",  # Teal
-                reference_line=1  # Expected: 1 (log2(150/75))
+                reference_line=1  # Expected: 1 (log2(150/75) = 1.0)
             )
         else:
             ax3.text(0.5, 0.5, "No Yeast data", ha="center", va="center",
@@ -437,7 +482,7 @@ class PlotGenerator:
     def create_sample_comparison_plot(self, data):
         """Create and return stacked 3-panel comparison plot as base64 image."""
         fig = self._create_comparison_figure(data)
-        return self._fig_to_base64(fig)
+        return fig_to_base64(fig)
 
     def _plot_ratio_comparison(self, ax, results, title, color, reference_line):
         """Helper method to plot box plot for intensity ratios of one organism.
@@ -449,7 +494,7 @@ class PlotGenerator:
             reference_line: Y-value for expected ratio reference line
         """
         data_arrays = [r[0] for r in results]
-        mix_labels = [r[1] for r in results]
+        mix_labels = [r[1] if r[1] is not None else "" for r in results]
         positions = np.arange(1, len(data_arrays) + 1)
 
         # Create box plot
@@ -501,16 +546,9 @@ class PlotGenerator:
         ax.set_xticks(positions)
         ax.set_xticklabels(mix_labels, rotation=45, ha="right", fontsize=9)
         ax.grid(axis="y", alpha=0.3)
-        ax.legend(fontsize=9, loc="upper right")
 
-    def _fig_to_base64(self, fig):
-        """Convert matplotlib figure to base64 encoded PNG."""
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-        plt.close(fig)
-        return img_base64
+        # Always show expected value legend
+        ax.legend(fontsize=9, loc="upper right")
 
 
 class TICAnalyzer:
@@ -584,7 +622,7 @@ class TICAnalyzer:
                 if rt_values:
                     max_rt = max(rt_values)
                     min_rt = min(rt_values)
-                    
+
                     # If max RT > 500, likely in seconds (typical runs are < 480 min)
                     if max_rt > 500:
                         logging.warning(f"Detected RT in seconds (max: {max_rt:.1f}s). Converting to minutes.")
@@ -592,12 +630,12 @@ class TICAnalyzer:
                             data_point['retention_time'] /= 60.0
                         max_rt /= 60.0
                         min_rt /= 60.0
-                    
+
                     # Sanity check for unusual RT ranges
                     if max_rt > 600:
                         logging.warning(f"⚠️  Unusual retention time range detected: {min_rt:.1f} - {max_rt:.1f} min. "
                                       f"Typical LC-MS runs are 60-480 minutes. Check acquisition metadata.")
-                    
+
                     logging.info(f"Processed {file_path}: {scan_count} total scans, {ms1_count} MS1 scans (DIA: {ms1_count == 0})")
                     logging.info(f"  RT range: {min_rt:.2f} - {max_rt:.2f} min")
                 else:
@@ -632,7 +670,7 @@ class TICAnalyzer:
         # Color palette for different samples
         colors = plt.cm.tab10(np.linspace(0, 1, len(tic_dict)))
 
-        for (sample_name, tic_df), color in zip(tic_dict.items(), colors):
+        for (sample_name, tic_df), color in zip(tic_dict.items(), colors, strict=False):
             if tic_df is not None and len(tic_df) > 0:
                 ax.plot(tic_df['retention_time'], tic_df['tic'],
                        label=sample_name, alpha=0.8, linewidth=1.5, color=color)
@@ -646,15 +684,6 @@ class TICAnalyzer:
         plt.tight_layout()
 
         return fig
-
-    def _fig_to_base64(self, fig):
-        """Convert matplotlib figure to base64 encoded PNG."""
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-        plt.close(fig)
-        return img_base64
 
     def clear_cache(self):
         """Clear cached TIC data."""
@@ -925,7 +954,7 @@ def generate_tic_plot():
 
         # Generate plot
         fig = tic_analyzer.create_tic_plot(tic_dict)
-        img_base64 = tic_analyzer._fig_to_base64(fig)
+        img_base64 = fig_to_base64(fig)
 
         return jsonify({'image': img_base64})
 
