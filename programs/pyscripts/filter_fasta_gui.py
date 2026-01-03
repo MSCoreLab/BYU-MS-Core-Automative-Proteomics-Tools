@@ -45,58 +45,108 @@ from tkinter import filedialog, messagebox, ttk
 
 @dataclass
 class FastaEntry:
-    """Represents a single FASTA entry with header and sequence."""
+    """Represents a single FASTA entry with header and sequence.
+
+    Attributes:
+        header: The header line including leading '>'
+        sequence_lines: List of sequence lines (preserves original formatting)
+    """
     header: str
     sequence_lines: list[str]
 
     @property
     def header_text(self) -> str:
-        """Return header without leading '>'."""
+        """Return header without leading '>'.
+
+        Returns:
+            Header text with '>' prefix removed
+        """
         return self.header.lstrip(">")
 
     @property
     def sequence(self) -> str:
-        """Return joined sequence."""
+        """Return joined sequence.
+
+        Returns:
+            Complete sequence as single string
+        """
         return "".join(self.sequence_lines)
 
     @property
     def sequence_hash(self) -> str:
-        """Return MD5 hash of sequence for deduplication."""
+        """Return MD5 hash of sequence for deduplication.
+
+        Returns:
+            Hexadecimal MD5 hash string
+
+        Note:
+            usedforsecurity=False since this is for data deduplication,
+            not cryptographic purposes
+        """
         return hashlib.md5(self.sequence.encode(), usedforsecurity=False).hexdigest()
 
     def write_to_file(self, file_handle, prefix: str = ""):
-        """Write entry to an open file handle with optional prefix."""
+        """Write entry to an open file handle with optional prefix.
+
+        Args:
+            file_handle: Open file object for writing
+            prefix: Optional prefix to add to header (e.g., '[filename]')
+        """
+        # * Write header with optional prefix
         if prefix:
             file_handle.write(f">{prefix}{self.header_text}\n")
         else:
             file_handle.write(f"{self.header}\n")
 
+        # * Write sequence lines preserving original formatting
         for line in self.sequence_lines:
             file_handle.write(f"{line}\n")
 
 
 class FastaReader:
-    """Reads and iterates over FASTA entries from a file."""
+    """Reads and iterates over FASTA entries from a file.
+
+    Uses iterator pattern for memory-efficient processing of large FASTA files.
+    Handles malformed files gracefully by replacing invalid UTF-8 characters.
+    """
 
     def __init__(self, file_path: Path):
+        """Initialize reader with file path.
+
+        Args:
+            file_path: Path object pointing to FASTA file
+        """
         self.file_path = file_path
 
     def __iter__(self) -> Iterator[FastaEntry]:
-        """Yield FastaEntry objects from the file."""
+        """Yield FastaEntry objects from the file.
+
+        Yields:
+            FastaEntry: Individual FASTA entries (header + sequence lines)
+
+        Note:
+            - Lines starting with '>' are treated as headers
+            - Sequence lines are accumulated until next header
+            - Final entry is yielded after file ends
+        """
         with self.file_path.open("r", encoding="utf-8", errors="replace") as f:
             header = None
             seq_lines = []
 
             for line in f:
                 line = line.rstrip("\n")
+
+                # ! New header found - yield previous entry if exists
                 if line.startswith(">"):
                     if header is not None:
                         yield FastaEntry(header, seq_lines)
                     header = line
                     seq_lines = []
+                # * Sequence line - append to current entry
                 elif header is not None:
                     seq_lines.append(line)
 
+            # ! Yield final entry if file didn't end with newline
             if header is not None:
                 yield FastaEntry(header, seq_lines)
 
@@ -111,28 +161,70 @@ class PatternMatcher(ABC):
 
 
 class SubstringMatcher(PatternMatcher):
-    """Matches patterns as substrings."""
+    """Matches patterns as substrings.
+
+    Fast substring matching using Python's built-in 'in' operator.
+    Normalizes both patterns and text when case-insensitive.
+    """
 
     def __init__(self, patterns: list[str], case_sensitive: bool = False):
+        """Initialize matcher with patterns.
+
+        Args:
+            patterns: List of substring patterns to match
+            case_sensitive: Whether to perform case-sensitive matching
+        """
+        # * Normalize patterns once at initialization for performance
         self.patterns = patterns if case_sensitive else [p.lower() for p in patterns]
         self.case_sensitive = case_sensitive
 
     def matches(self, text: str) -> bool:
+        """Check if text contains any pattern.
+
+        Args:
+            text: Text to search for patterns
+
+        Returns:
+            True if any pattern is found in text
+        """
         normalized_text = text if self.case_sensitive else text.lower()
         return any(pattern in normalized_text for pattern in self.patterns)
 
 
 class RegexMatcher(PatternMatcher):
-    """Matches patterns as regular expressions."""
+    """Matches patterns as regular expressions.
+
+    Compiles regex patterns at initialization for better performance.
+    Validates regex syntax and provides helpful error messages.
+    """
 
     def __init__(self, patterns: list[str], case_sensitive: bool = False):
+        """Initialize matcher with regex patterns.
+
+        Args:
+            patterns: List of regex pattern strings
+            case_sensitive: Whether to perform case-sensitive matching
+
+        Raises:
+            ValueError: If any pattern has invalid regex syntax
+        """
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
+            # ! Pre-compile all regex patterns for performance
             self.regexes = [re.compile(p, flags) for p in patterns]
         except re.error as e:
+            # ! Provide user-friendly error message for invalid regex
             raise ValueError(f"Invalid regular expression: {e}") from e
 
     def matches(self, text: str) -> bool:
+        """Check if text matches any regex pattern.
+
+        Args:
+            text: Text to search for pattern matches
+
+        Returns:
+            True if any pattern matches the text
+        """
         return any(regex.search(text) for regex in self.regexes)
 
 
@@ -154,30 +246,60 @@ class MergeStats:
 
 
 class FastaFilter:
-    """Handles FASTA filtering operations."""
+    """Handles FASTA filtering operations.
+
+    Removes entries whose headers match specified patterns using either
+    substring or regex matching. Uses Strategy pattern for flexible matching.
+    """
 
     def __init__(self, patterns: list[str], use_regex: bool = False, case_sensitive: bool = False):
+        """Initialize filter with patterns and matching options.
+
+        Args:
+            patterns: List of patterns to match against headers
+            use_regex: Whether to treat patterns as regular expressions
+            case_sensitive: Whether matching should be case-sensitive
+
+        Raises:
+            ValueError: If patterns list is empty
+        """
         if not patterns:
             raise ValueError("Please provide at least one pattern to match.")
 
+        # * Use Strategy pattern to select matcher implementation
         self.matcher = (
             RegexMatcher(patterns, case_sensitive) if use_regex
             else SubstringMatcher(patterns, case_sensitive)
         )
+        # * Store configuration for report generation
         self.patterns = patterns
         self.use_regex = use_regex
         self.case_sensitive = case_sensitive
 
     def filter_file(self, input_path: Path, output_path: Path) -> FilterStats:
-        """Filter FASTA file, removing entries matching patterns."""
+        """Filter FASTA file, removing entries matching patterns.
+
+        Args:
+            input_path: Path to input FASTA file
+            output_path: Path for filtered output file
+
+        Returns:
+            FilterStats object containing operation statistics
+
+        Note:
+            - Only headers are checked; sequences pass through unchanged
+            - Memory efficient: processes one entry at a time
+        """
         stats = FilterStats()
         reader = FastaReader(input_path)
 
         with output_path.open("w", encoding="utf-8") as fout:
             for entry in reader:
+                # ! Check if header matches any removal pattern
                 if self.matcher.matches(entry.header_text):
                     stats.removed += 1
                     stats.removed_headers.append(entry.header)
+                # * Keep entry - write to output file
                 else:
                     stats.kept += 1
                     entry.write_to_file(fout)
@@ -210,36 +332,89 @@ class DeduplicationStrategy(ABC):
 
 
 class NoDuplication(DeduplicationStrategy):
-    """No deduplication - keep all entries."""
+    """No deduplication - keep all entries.
 
-    def is_duplicate(self, entry: FastaEntry) -> bool:
+    Null Object pattern: always returns False for is_duplicate.
+    Used when user doesn't want any deduplication.
+    """
+
+    def is_duplicate(self, _entry: FastaEntry) -> bool:
+        """Always returns False (never considers entries as duplicates).
+
+        Args:
+            _entry: Unused parameter (prefixed with _ to indicate intentionally unused)
+
+        Returns:
+            Always False
+        """
         return False
 
 
 class HeaderDeduplication(DeduplicationStrategy):
-    """Deduplicate by header text."""
+    """Deduplicate by header text.
+
+    Maintains a set of seen headers. First occurrence is kept,
+    subsequent entries with same header are marked as duplicates.
+    """
 
     def __init__(self):
-        self.seen_headers = set()
+        """Initialize with empty set of seen headers."""
+        self.seen_headers: set[str] = set()
 
     def is_duplicate(self, entry: FastaEntry) -> bool:
+        """Check if entry's header was seen before.
+
+        Args:
+            entry: FASTA entry to check
+
+        Returns:
+            True if header was seen before, False otherwise
+
+        Side Effect:
+            Adds header to seen_headers set on first occurrence
+        """
         header_text = entry.header_text
+        # * Check if header already seen
         if header_text in self.seen_headers:
             return True
+        # * First occurrence - add to set and keep
         self.seen_headers.add(header_text)
         return False
 
 
 class SequenceDeduplication(DeduplicationStrategy):
-    """Deduplicate by sequence hash."""
+    """Deduplicate by sequence hash.
+
+    Uses MD5 hashing for efficient sequence comparison.
+    First occurrence is kept, subsequent entries with identical
+    sequences are marked as duplicates.
+
+    Note:
+        More memory-efficient than storing full sequences.
+        Hash collisions are extremely unlikely for typical FASTA files.
+    """
 
     def __init__(self):
-        self.seen_hashes = set()
+        """Initialize with empty set of seen sequence hashes."""
+        self.seen_hashes: set[str] = set()
 
     def is_duplicate(self, entry: FastaEntry) -> bool:
+        """Check if entry's sequence was seen before.
+
+        Args:
+            entry: FASTA entry to check
+
+        Returns:
+            True if sequence hash was seen before, False otherwise
+
+        Side Effect:
+            Adds sequence hash to seen_hashes set on first occurrence
+        """
         seq_hash = entry.sequence_hash
+        # * Check if sequence hash already seen
         if seq_hash in self.seen_hashes:
             return True
+        # * First occurrence - add hash to set and keep
         self.seen_hashes.add(seq_hash)
         return False
 
@@ -279,9 +454,19 @@ class FastaMerger:
         return stats
 
     def _process_file(self, input_path: Path, output_handle, stats: MergeStats) -> tuple[int, int]:
-        """Process a single file during merge."""
+        """Process a single file during merge.
+
+        Args:
+            input_path: Path to input FASTA file
+            output_handle: Open file handle for merged output
+            stats: MergeStats object to update
+
+        Returns:
+            Tuple of (total_entries_in_file, entries_written_from_file)
+        """
         file_total = 0
         file_written = 0
+        # * Generate prefix if enabled (e.g., '[filename]')
         prefix = f"[{input_path.stem}]" if self.add_prefix else ""
 
         reader = FastaReader(input_path)
@@ -289,9 +474,11 @@ class FastaMerger:
             file_total += 1
             stats.total_entries += 1
 
+            # * Check for duplicates using selected strategy
             if self.dedup_strategy.is_duplicate(entry):
                 stats.skipped_duplicates += 1
             else:
+                # * Write entry with optional prefix
                 entry.write_to_file(output_handle, prefix)
                 stats.written_entries += 1
                 file_written += 1
@@ -330,41 +517,43 @@ class App(tk.Tk):
     DARK_HIGHLIGHT = "#007acc"
 
     def __init__(self):
+        """Initialize the FASTA File Processor GUI application."""
         super().__init__()
         self.title("FASTA File Processor")
         self.geometry("800x500")
         self.minsize(700, 450)
 
-        # Apply dark mode theme
+        # * Apply dark mode theme
         self._setup_dark_theme()
 
-        # Create notebook for tabs
+        # * Create notebook for tabs
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Create filter tab
+        # * Create filter tab
         self.filter_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.filter_frame, text="Filter FASTA")
 
-        # Create merge tab
+        # * Create merge tab
         self.merge_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.merge_frame, text="Merge FASTA Files")
 
-        # Filter tab variables
+        # * Initialize filter tab variables
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
-        self.patterns_var = tk.StringVar(value="##")
+        self.patterns_var = tk.StringVar(value="##")  # Default pattern
         self.regex_var = tk.BooleanVar(value=False)
         self.case_var = tk.BooleanVar(value=False)
-        self.report_var = tk.BooleanVar(value=True)
+        self.report_var = tk.BooleanVar(value=True)  # Generate reports by default
 
-        # Merge tab variables
-        self.merge_files = []  # List of Path objects
+        # * Initialize merge tab variables
+        self.merge_files: list[Path] = []  # List of Path objects to merge
         self.merge_output_var = tk.StringVar()
-        self.dedupe_var = tk.StringVar(value="none")
+        self.dedupe_var = tk.StringVar(value="none")  # No deduplication by default
         self.prefix_var = tk.BooleanVar(value=False)
         self.merge_report_var = tk.BooleanVar(value=True)
 
+        # * Build UI for both tabs
         self._build_filter_ui()
         self._build_merge_ui()
 
@@ -570,15 +759,22 @@ class App(tk.Tk):
         ttk.Label(row6, text=help_txt, justify="left").pack(anchor="w")
 
     def choose_input(self):
+        """Open file dialog to select input FASTA file.
+
+        Side Effects:
+            - Sets input_var to selected file path
+            - Auto-suggests output filename if not already set
+        """
         path = filedialog.askopenfilename(
             title="Choose FASTA file",
             filetypes=self.FASTA_FILETYPES,
         )
         if path:
             self.input_var.set(path)
-            # Suggest an output next to it
+            # * Suggest an output filename next to input
             in_path = Path(path)
             suggested = in_path.with_suffix(in_path.suffix + ".filtered.fasta")
+            # * Only auto-suggest if output not already set
             if not self.output_var.get():
                 self.output_var.set(str(suggested))
 
@@ -592,6 +788,16 @@ class App(tk.Tk):
             self.output_var.set(path)
 
     def add_merge_files(self):
+        """Open file dialog to select FASTA files for merging.
+
+        Allows multiple file selection. Prevents duplicate entries.
+        Auto-suggests output filename if not already set.
+
+        Side Effects:
+            - Adds selected files to merge_files list
+            - Updates merge_listbox display
+            - Auto-suggests merge output path on first addition
+        """
         paths = filedialog.askopenfilenames(
             title="Choose FASTA files to merge",
             filetypes=self.FASTA_FILETYPES,
@@ -599,11 +805,12 @@ class App(tk.Tk):
         if paths:
             for path in paths:
                 p = Path(path)
+                # * Prevent duplicate file additions
                 if p not in self.merge_files:
                     self.merge_files.append(p)
                     self.merge_listbox.insert(tk.END, p.name)
 
-            # Suggest output if not set
+            # * Suggest output if not set (use parent dir of first file)
             if not self.merge_output_var.get() and self.merge_files:
                 first = self.merge_files[0]
                 suggested = first.parent / "merged_output.fasta"
@@ -637,20 +844,33 @@ class App(tk.Tk):
         return patterns
 
     def run_filter(self):
+        """Execute FASTA filtering operation.
+
+        Validates inputs, creates FastaFilter instance, processes file,
+        and displays results. Optionally generates removal report.
+
+        Shows:
+            - Success dialog with statistics
+            - Error dialog if validation fails or exception occurs
+        """
         try:
+            # * Validate and expand file paths
             input_path = Path(self.input_var.get()).expanduser()
             output_path = Path(self.output_var.get()).expanduser()
 
+            # ! Validate input file exists
             if not input_path or not input_path.exists():
                 messagebox.showerror("Error", "Please choose a valid input FASTA file.")
                 return
+            # ! Validate output path is set
             if not output_path:
                 messagebox.showerror("Error", "Please choose an output FASTA file path.")
                 return
 
+            # * Parse and validate patterns
             patterns = self._parse_patterns(self.patterns_var.get().strip())
 
-            # Create filter and process file
+            # * Create filter and process file
             fasta_filter = FastaFilter(
                 patterns=patterns,
                 use_regex=self.regex_var.get(),
@@ -659,7 +879,7 @@ class App(tk.Tk):
 
             stats = fasta_filter.filter_file(input_path, output_path)
 
-            # Save report if requested
+            # * Save report if requested
             if self.report_var.get():
                 report_path = output_path.with_suffix(output_path.suffix + ".removed.txt")
                 fasta_filter.save_report(input_path, output_path, stats, report_path)
@@ -670,20 +890,32 @@ class App(tk.Tk):
 
             messagebox.showinfo("FASTA Header Filter", msg)
         except Exception as e:
+            # ! Display user-friendly error message
             messagebox.showerror("Error", str(e))
 
     def run_merge(self):
+        """Execute FASTA merge operation.
+
+        Validates inputs, creates FastaMerger instance, processes files,
+        and displays results. Optionally generates merge report.
+
+        Shows:
+            - Success dialog with statistics
+            - Error dialog if validation fails or exception occurs
+        """
         try:
+            # ! Validate at least one file selected
             if not self.merge_files:
                 messagebox.showerror("Error", "Please add at least one FASTA file to merge.")
                 return
 
+            # * Validate and expand output path
             output_path = Path(self.merge_output_var.get()).expanduser()
             if not output_path:
                 messagebox.showerror("Error", "Please choose an output FASTA file path.")
                 return
 
-            # Create merger and process files
+            # * Create merger and process files
             merger = FastaMerger(
                 deduplicate=self.dedupe_var.get(),
                 add_prefix=self.prefix_var.get()
@@ -691,7 +923,7 @@ class App(tk.Tk):
 
             stats = merger.merge_files(self.merge_files, output_path)
 
-            # Save report if requested
+            # * Save report if requested
             if self.merge_report_var.get():
                 report_path = output_path.with_suffix(output_path.suffix + ".merge_report.txt")
                 merger.save_report(output_path, stats, report_path)
@@ -706,15 +938,23 @@ class App(tk.Tk):
 
             messagebox.showinfo("FASTA Merge", msg)
         except Exception as e:
+            # ! Display user-friendly error message
             messagebox.showerror("Error", str(e))
 
 
 def main():
-    # If run with args, allow headless usage:
-    #   python filter_fasta_gui.py input.fasta output.fasta "pat1,pat2" --regex --case
-    # Otherwise show the GUI.
+    """Main entry point for FASTA File Processor.
+
+    Supports both GUI and command-line (headless) operation:
+    - GUI mode: No arguments provided
+    - CLI mode: input, output, and patterns arguments provided
+
+    CLI Usage:
+        python filter_fasta_gui.py input.fasta output.fasta "pat1,pat2" [--regex] [--case] [--report]
+    """
     import argparse
 
+    # * Setup argument parser for CLI mode
     parser = argparse.ArgumentParser(description="Filter FASTA entries by header patterns.")
     parser.add_argument("input", nargs="?", help="Input FASTA")
     parser.add_argument("output", nargs="?", help="Output FASTA")
@@ -729,12 +969,14 @@ def main():
 
     args = parser.parse_args()
 
+    # * Check if running in CLI mode (all required args provided)
     if args.input and args.output and args.patterns:
+        # ! CLI mode - process file without GUI
         patterns = [p.strip() for p in args.patterns.split(",") if p.strip()]
         input_path = Path(args.input)
         output_path = Path(args.output)
 
-        # Create filter and process
+        # * Create filter and process
         fasta_filter = FastaFilter(
             patterns=patterns,
             use_regex=args.regex,
@@ -743,14 +985,16 @@ def main():
 
         stats = fasta_filter.filter_file(input_path, output_path)
 
-        # Save report if requested
+        # * Save report if requested
         if args.report:
             report_path = output_path.with_suffix(output_path.suffix + ".removed.txt")
             fasta_filter.save_report(input_path, output_path, stats, report_path)
 
+        # * Print results to stdout
         print(f"Kept entries: {stats.kept}")
         print(f"Removed entries: {stats.removed}")
     else:
+        # * GUI mode - launch Tkinter application
         app = App()
         app.mainloop()
 
