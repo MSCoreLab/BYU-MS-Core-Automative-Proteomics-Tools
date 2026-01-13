@@ -10,11 +10,11 @@ import time
 import webbrowser
 from pathlib import Path
 
+from backend.app import app
+
 # Add backend to path
 backend_path = Path(__file__).parent / 'backend'
 sys.path.insert(0, str(backend_path))
-
-from backend.app import app
 
 
 def start_flask():
