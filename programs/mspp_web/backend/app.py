@@ -4,6 +4,7 @@ MSPP Data Plotter - Flask Backend API
 Provides REST endpoints for MS proteomics data visualization
 """
 
+# Importing the necessary libraries
 import base64
 import contextlib
 import io
@@ -689,6 +690,10 @@ class TICAnalyzer:
         """Clear cached TIC data."""
         self.cached_tic_data.clear()
 
+'''
+The main Python script for the heavy lifting ends here. The rest is how the Flask app is set up and routes defined for the webapp.
+If you are interested in tweaking or extending the functionality of the webapp interfaces, check out the frontend code in programs/mspp_web/frontend.
+'''
 
 # Global instances
 processor = DataProcessor()
@@ -698,6 +703,7 @@ uploaded_files = {}  # Store uploaded files temporarily
 uploaded_mzml_files = {}  # Store uploaded mzML files separately
 
 
+# Flask routes
 @app.route('/')
 def serve_react_app():
     """Serve React frontend."""
