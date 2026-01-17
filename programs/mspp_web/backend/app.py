@@ -399,14 +399,23 @@ class PlotGenerator:
                     )
                     y_offset += bar_height
 
+        # Get the .raw column names for x-axis labels
+        x_labels = []
+        for sample in counts.index:
+            # Get the corresponding .raw column name, or use the sample name if not found
+            raw_col = self.processor.file_to_raw_column.get(sample, sample)
+            # Extract just the filename from the full path (e.g., "57367.raw" from "D:\QC_DIA\57367.raw")
+            raw_filename = Path(raw_col).name if raw_col else sample
+            x_labels.append(raw_filename)
+
         # Configure axes and styling
         ax.set_xlabel("Sample", fontsize=12, fontweight="bold")
         ax.set_ylabel("Number of Protein IDs", fontsize=12, fontweight="bold")
         ax.set_title("Protein ID Counts by Organism", fontsize=14, fontweight="bold")
+        ax.set_xticks(range(len(counts)))
+        ax.set_xticklabels(x_labels, rotation=45, ha='right')
         ax.legend(title="Organism", fontsize=10, loc="upper right")
         ax.grid(axis="y", alpha=0.3)
-        ax.tick_params(axis="x", rotation=45, labelbottom=True)
-        plt.setp(ax.xaxis.get_majorticklabels(), ha="right")
         plt.tight_layout()
 
         return fig
