@@ -372,6 +372,19 @@ class PlotGenerator:
             columns=[col for col in org_order if col in counts.columns], fill_value=0
         )
 
+        # Sort samples by numeric value extracted from .raw filename
+        def get_numeric_value(sample_name):
+            """Extract numeric value from a single .raw filename for sorting."""
+            raw_col = self.processor.file_to_raw_column.get(sample_name, sample_name)
+            raw_filename = Path(raw_col).stem if raw_col else sample_name
+            # Extract first number found in filename (e.g., "57367" from "57367.raw")
+            match = re.search(r'(\d+)', raw_filename)
+            return int(match.group(1)) if match else 0
+
+        # Create sorted list of sample names, then reindex
+        sorted_samples = sorted(counts.index, key=get_numeric_value)
+        counts = counts.reindex(sorted_samples)
+
         fig, ax = plt.subplots(figsize=figsize)
 
         # Create stacked bar chart
