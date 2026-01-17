@@ -691,7 +691,7 @@ class TICAnalyzer:
         fig, ax = plt.subplots(figsize=figsize)
 
         # Color palette for different samples
-        colors = plt.cm.tab10(np.linspace(0, 1, len(tic_dict)))
+        colors = plt.colormaps['tab10'](np.linspace(0, 1, len(tic_dict)))
 
         for (sample_name, tic_df), color in zip(tic_dict.items(), colors, strict=False):
             if tic_df is not None and len(tic_df) > 0:
@@ -729,7 +729,7 @@ uploaded_mzml_files = {}  # Store uploaded mzML files separately
 @app.route('/')
 def serve_react_app():
     """Serve React frontend."""
-    return send_from_directory(app.static_folder, 'index.html')
+    return send_from_directory(app.static_folder, 'index.html') # type: ignore
 
 
 @app.route('/api/health', methods=['GET'])
