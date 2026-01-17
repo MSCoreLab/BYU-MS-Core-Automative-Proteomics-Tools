@@ -338,7 +338,7 @@ class NoDuplication(DeduplicationStrategy):
     Used when user doesn't want any deduplication.
     """
 
-    def is_duplicate(self, _entry: FastaEntry) -> bool:
+    def is_duplicate(self, entry: FastaEntry) -> bool:
         """Always returns False (never considers entries as duplicates).
 
         Args:
@@ -347,6 +347,7 @@ class NoDuplication(DeduplicationStrategy):
         Returns:
             Always False
         """
+        _ = entry
         return False
 
 
@@ -591,11 +592,11 @@ class App(tk.Tk):
 
     def _build_filter_ui(self):
         frm = ttk.Frame(self.filter_frame)
-        frm.pack(fill="both", expand=True, **self.PADDING)
+        frm.pack(fill="both", expand=True)
 
         # Row 1: Input
         row1 = ttk.Frame(frm)
-        row1.pack(fill="x", **self.PADDING)
+        row1.pack(fill="x")
         ttk.Label(row1, text="Input FASTA:").pack(side="left")
         input_entry = tk.Entry(
             row1,
@@ -609,7 +610,7 @@ class App(tk.Tk):
 
         # Row 2: Output
         row2 = ttk.Frame(frm)
-        row2.pack(fill="x", **self.PADDING)
+        row2.pack(fill="x")
         ttk.Label(row2, text="Output FASTA:").pack(side="left")
         output_entry = tk.Entry(
             row2,
@@ -623,7 +624,7 @@ class App(tk.Tk):
 
         # Row 3: Patterns
         row3 = ttk.Frame(frm)
-        row3.pack(fill="x", **self.PADDING)
+        row3.pack(fill="x")
         ttk.Label(row3, text="Patterns (comma-separated):").pack(side="left")
         pattern_entry = tk.Entry(
             row3,
@@ -636,7 +637,7 @@ class App(tk.Tk):
 
         # Row 4: Options
         row4 = ttk.Frame(frm)
-        row4.pack(fill="x", **self.PADDING)
+        row4.pack(fill="x")
         ttk.Checkbutton(row4, text="Use regular expressions", variable=self.regex_var).pack(
             side="left"
         )
@@ -647,7 +648,7 @@ class App(tk.Tk):
 
         # Row 5: Actions
         row5 = ttk.Frame(frm)
-        row5.pack(fill="x", **self.PADDING)
+        row5.pack(fill="x")
         ttk.Button(row5, text="Run Filter", command=self.run_filter).pack(side="left")
 
         # Help text
@@ -658,16 +659,16 @@ class App(tk.Tk):
             "• Only headers starting with '>' are checked; sequences are preserved as-is for kept entries.\n"
         )
         row6 = ttk.Frame(frm)
-        row6.pack(fill="both", expand=True, **self.PADDING)
+        row6.pack(fill="both", expand=True)
         ttk.Label(row6, text=help_txt, justify="left").pack(anchor="w")
 
     def _build_merge_ui(self):
         frm = ttk.Frame(self.merge_frame)
-        frm.pack(fill="both", expand=True, **self.PADDING)
+        frm.pack(fill="both", expand=True)
 
         # Row 1: File list with scrollbar
         row1 = ttk.Frame(frm)
-        row1.pack(fill="both", expand=True, **self.PADDING)
+        row1.pack(fill="both", expand=True)
         ttk.Label(row1, text="Input FASTA files to merge:").pack(anchor="w")
 
         list_frame = ttk.Frame(row1)
@@ -706,7 +707,7 @@ class App(tk.Tk):
 
         # Row 2: Output
         row2 = ttk.Frame(frm)
-        row2.pack(fill="x", **self.PADDING)
+        row2.pack(fill="x")
         ttk.Label(row2, text="Output merged FASTA:").pack(side="left")
         merge_output_entry = tk.Entry(
             row2,
@@ -720,7 +721,7 @@ class App(tk.Tk):
 
         # Row 3: Options
         row3 = ttk.Frame(frm)
-        row3.pack(fill="x", **self.PADDING)
+        row3.pack(fill="x")
 
         ttk.Label(row3, text="Deduplication:").pack(side="left", padx=(0, 6))
         ttk.Radiobutton(row3, text="None", variable=self.dedupe_var, value="none").pack(side="left")
@@ -733,7 +734,7 @@ class App(tk.Tk):
 
         # Row 4: More options
         row4 = ttk.Frame(frm)
-        row4.pack(fill="x", **self.PADDING)
+        row4.pack(fill="x")
         ttk.Checkbutton(row4, text="Add file prefix to headers", variable=self.prefix_var).pack(
             side="left"
         )
@@ -743,7 +744,7 @@ class App(tk.Tk):
 
         # Row 5: Actions
         row5 = ttk.Frame(frm)
-        row5.pack(fill="x", **self.PADDING)
+        row5.pack(fill="x")
         ttk.Button(row5, text="Run Merge", command=self.run_merge).pack(side="left")
 
         # Help text
@@ -755,7 +756,7 @@ class App(tk.Tk):
             "• File prefix adds source filename to each header (e.g., >[file1]original_header).\n"
         )
         row6 = ttk.Frame(frm)
-        row6.pack(fill="x", **self.PADDING)
+        row6.pack(fill="x")
         ttk.Label(row6, text=help_txt, justify="left").pack(anchor="w")
 
     def choose_input(self):
