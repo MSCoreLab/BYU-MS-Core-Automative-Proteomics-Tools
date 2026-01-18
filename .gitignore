@@ -47,4 +47,6 @@ desktop.ini
 # *.mzXML
 
 # Keep frontend build for deployment
-!programs/mspp_web/frontend/dist/
+!programs/mspp_web/frontend/dist/# pixi environments
+.pixi/*
+!.pixi/config.toml
