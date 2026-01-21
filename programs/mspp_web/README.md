@@ -2,7 +2,7 @@
 
 Modern web application for analyzing and visualizing mass spectrometry proteomics data from Orbitrap Astral MS (DIA-NN output).
 
-## ⚙️ Technical Architecture
+## Technical Architecture
 
 This platform moves beyond static scripts to provide a scalable, web-based interface for proteomics analysis.
 
@@ -14,25 +14,25 @@ This platform moves beyond static scripts to provide a scalable, web-based inter
 
 ## Features
 
-### 📊 Visualizations
+### Visualizations
 
 -   **Protein Count Bar Chart**: Stacked bar chart showing organism composition across samples
 -   **Intensity Ratio Comparison**: 3-panel box plots (HeLa, E.coli, Yeast) showing log2 intensity ratios
 
-### 📥 File Management
+### File Management
 
 -   Drag-and-drop or click to upload TSV files
 -   Multi-file support (E25 and E100 samples)
 -   Real-time file list display
 -   Clear all files with one click
 
-### 💾 Export Options
+### Export Options
 
 -   Export individual plots (300 DPI PNG)
 -   Export all plots as ZIP file
 -   High-quality images suitable for publication
 
-### 🔬 Analysis Features
+### Analysis Features
 
 -   Automatic organism identification (HeLa, E.coli, Yeast)
 -   Consensus protein calculation (proteins in both E25 and E100)
@@ -233,15 +233,15 @@ See [LICENSE](../../LICENSE) in the root repository.
 
 ## Features
 
--   ✨ Modern, dark-themed UI
--   📤 Drag-and-drop file upload
--   📊 Two visualization modes:
+-   Modern, dark-themed UI
+-   Drag-and-drop file upload
+-   Two visualization modes:
     -   Protein ID bar chart
     -   Sample Intensity Comparison (E25 vs E100)
--   🖥️ Native desktop application
--   🚀 Can be deployed as web server (Flask standalone)
--   🔍 Automatic mix detection and grouping
--   🎨 Color-coded E25/E100 comparison plots
+-   Native desktop application
+-   Can be deployed as web server (Flask standalone)
+-   Automatic mix detection and grouping
+-   Color-coded E25/E100 comparison plots
 
 ## API Endpoints
 
