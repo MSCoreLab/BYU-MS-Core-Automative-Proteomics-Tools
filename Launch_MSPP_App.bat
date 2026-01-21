@@ -4,7 +4,7 @@ REM Double-click this file to launch the app
 
 setlocal enabledelayedexpansion
 
-cd /d "c:\GitHub\BYU-Core-MS-Lab\programs\mspp_web"
+cd /d "c:\GitHub\BYU-MS-Core-Automative-Proteomics-Tools\programs\mspp_web"
 
 echo ===============================================================
 echo Starting MSPP Data Plotter...
@@ -12,7 +12,7 @@ echo ===============================================================
 echo.
 
 REM Run the Python launcher
-"c:\GitHub\BYU-Core-MS-Lab\.venv\Scripts\python.exe" launch_app.py
+"c:\GitHub\BYU-MS-Core-Automative-Proteomics-Tools\.venv\Scripts\python.exe" launch_app.py
 
 if errorlevel 1 (
     echo.
