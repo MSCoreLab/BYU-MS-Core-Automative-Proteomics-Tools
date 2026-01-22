@@ -7,8 +7,8 @@ name = "byu-core-ms-lab"
 version = "0.2.0"
 description = "Mass Spectrometry QC and analysis tools for BYU Fritz B. Burns Cancer Research Center MS Core Facility"
 readme = "README.md"
-requires-python = ">=3.10"
-license = {text = "MIT"}
+requires-python = ">=3.14"
+license = {text = "GPLv3"}
 authors = [
     {name = "BYU Fritz B. Burns Cancer Research Center MS Core Facility"},
 ]
@@ -50,7 +50,16 @@ dependencies = [
     "pillow>=12.1.0,<13",
     "pyteomics>=4.7.5,<5",
     "lxml>=6.0.2,<7",
-    "ruff>=0.14.13,<0.15", "pytest>=9.0.2,<10", "pytest-cov>=7.0.0,<8", "mypy>=1.19.1,<2", "black>=26.1.0,<27", "jupyter>=1.1.1,<2", "ipykernel>=7.1.0,<8", "ipywidgets>=8.1.8,<9", "gunicorn>=23.0.0,<24", "waitress>=3.0.2,<4",
+    "ruff>=0.14.13,<0.15", 
+    "pytest>=9.0.2,<10", 
+    "pytest-cov>=7.0.0,<8", 
+    "mypy>=1.19.1,<2", 
+    "black>=26.1.0,<27", 
+    "jupyter>=1.1.1,<2", 
+    "ipykernel>=7.1.0,<8", 
+    "ipywidgets>=8.1.8,<9", 
+    "gunicorn>=23.0.0,<24", 
+    "waitress>=3.0.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -210,6 +219,7 @@ channels = ["conda-forge"]
 platforms = ["win-64"]
 
 [tool.pixi.pypi-dependencies]
+pydocstyle = "*"
 byu-core-ms-lab = { path = ".", editable = true }
 
 [tool.pixi.environments]
@@ -220,3 +230,8 @@ jupyter = { features = ["jupyter"], solve-group = "default" }
 web = { features = ["web"], solve-group = "default" }
 
 [tool.pixi.tasks]
+start = { cmd = "positron .", env = { PYTHONPATH = ".pixi/envs/default/Lib" } }
+
+[tool.pixi.dependencies]
+pip = ">=25.3,<26"
+

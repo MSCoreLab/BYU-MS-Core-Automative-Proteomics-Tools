@@ -114,7 +114,7 @@ class DataProcessor:
         self.cached_data = None
         self.cached_file_list = []
 
-    def _calculate_intensity_ratios(self, data, e25_file, e100_file, organism):
+    def calculate_intensity_ratios(self, data, e25_file, e100_file, organism):
         """Calculate log2 intensity ratios (E25/E100) for consensus proteins.
         For each consensus protein, calculate log2(E25_intensity / E100_intensity).
         This shows the fold change between replicates without HeLa normalization.
@@ -316,13 +316,13 @@ class DataProcessor:
             # HeLa: Expected ~0 (constant concentration, sanity check)
             # E.coli: Expected ~-2 (log2(25/100) ≈ -2.0)
             # Yeast: Expected ~1 (log2(150/75) = 1.0)
-            hela_ratios = self._calculate_intensity_ratios(
+            hela_ratios = self.calculate_intensity_ratios(
                 data, e25_sample, e100_sample, "HeLa"
             )
-            ecoli_ratios = self._calculate_intensity_ratios(
+            ecoli_ratios = self.calculate_intensity_ratios(
                 data, e25_sample, e100_sample, "E.coli"
             )
-            yeast_ratios = self._calculate_intensity_ratios(
+            yeast_ratios = self.calculate_intensity_ratios(
                 data, e25_sample, e100_sample, "Yeast"
             )
 
@@ -358,7 +358,7 @@ class PlotGenerator:
         """Initialize with a DataProcessor instance."""
         self.processor = processor
 
-    def _create_bar_chart_figure(self, data, figsize=(12, 7)):
+    def create_bar_chart_figure(self, data, figsize=(12, 7)):
         """Create bar chart matplotlib figure (reusable for display and export).
         Args:
             data: DataFrame with protein data
@@ -435,10 +435,10 @@ class PlotGenerator:
 
     def create_bar_chart(self, data):
         """Create and return bar chart as base64 image."""
-        fig = self._create_bar_chart_figure(data)
+        fig = self.create_bar_chart_figure(data)
         return fig_to_base64(fig)
 
-    def _create_comparison_figure(self, data, figsize=(18, 16)):
+    def create_comparison_figure(self, data, figsize=(18, 16)):
         """Create sample comparison matplotlib figure (reusable for display and export).
         Args:
             data: DataFrame with protein data
@@ -504,7 +504,7 @@ class PlotGenerator:
 
     def create_sample_comparison_plot(self, data):
         """Create and return stacked 3-panel comparison plot as base64 image."""
-        fig = self._create_comparison_figure(data)
+        fig = self.create_comparison_figure(data)
         return fig_to_base64(fig)
 
     def _plot_ratio_comparison(self, ax, results, title, color, reference_line):
@@ -830,7 +830,7 @@ def export_bar_chart():
         data = processor.load_data(list(uploaded_files.values()))
 
         # Generate high-DPI plot using reusable method
-        fig = plotter._create_bar_chart_figure(data, figsize=(10, 6))
+        fig = plotter.create_bar_chart_figure(data, figsize=(10, 6))
 
         # Save to bytes buffer
         buf = io.BytesIO()
@@ -857,7 +857,7 @@ def export_sample_comparison():
         data = processor.load_data(list(uploaded_files.values()))
 
         # Generate high-DPI plot using reusable method
-        fig = plotter._create_comparison_figure(data, figsize=(18, 16))
+        fig = plotter.create_comparison_figure(data, figsize=(18, 16))
 
         # Save to bytes buffer with high DPI
         buf = io.BytesIO()
@@ -891,7 +891,7 @@ def export_all_plots():
 
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             # Generate and add bar chart using reusable method
-            fig = plotter._create_bar_chart_figure(data, figsize=(10, 6))
+            fig = plotter.create_bar_chart_figure(data, figsize=(10, 6))
             bar_buf = io.BytesIO()
             fig.savefig(bar_buf, format='png', dpi=300, bbox_inches='tight')
             bar_buf.seek(0)
@@ -899,7 +899,7 @@ def export_all_plots():
             zip_file.writestr('protein_id_bar_chart.png', bar_buf.getvalue())
 
             # Generate and add sample comparison plot using reusable method
-            fig = plotter._create_comparison_figure(data, figsize=(18, 16))
+            fig = plotter.create_comparison_figure(data, figsize=(18, 16))
             comp_buf = io.BytesIO()
             fig.savefig(comp_buf, format='png', dpi=300, bbox_inches='tight')
             comp_buf.seek(0)
