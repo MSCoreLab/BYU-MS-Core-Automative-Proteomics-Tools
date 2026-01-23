@@ -15,6 +15,7 @@ build/
 .coverage
 htmlcov/
 *.log
+*.tsv
 
 # Ruff
 .ruff_cache/

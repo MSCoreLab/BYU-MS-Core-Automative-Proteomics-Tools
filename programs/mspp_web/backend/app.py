@@ -458,7 +458,7 @@ class PlotGenerator:
 
         # Plot HeLa comparison (top)
         if hela_results:
-            self._plot_ratio_comparison(
+            self.plot_ratio_comparison(
                 ax1, hela_results,
                 title="HeLa Log2 Intensity Ratio (E25/E100 = constant)",
                 color="#9b59b6",  # Purple
@@ -470,7 +470,7 @@ class PlotGenerator:
 
         # Plot E.coli comparison (middle)
         if ecoli_results:
-            self._plot_ratio_comparison(
+            self.plot_ratio_comparison(
                 ax2, ecoli_results,
                 title="E.coli Log2 Intensity Ratio (E25/E100)",
                 color="#e67e22",  # Orange
@@ -482,7 +482,7 @@ class PlotGenerator:
 
         # Plot Yeast comparison (bottom)
         if yeast_results:
-            self._plot_ratio_comparison(
+            self.plot_ratio_comparison(
                 ax3, yeast_results,
                 title="Yeast Log2 Intensity Ratio (Y150/Y75)",
                 color="#16a085",  # Teal
@@ -507,7 +507,7 @@ class PlotGenerator:
         fig = self.create_comparison_figure(data)
         return fig_to_base64(fig)
 
-    def _plot_ratio_comparison(self, ax, results, title, color, reference_line):
+    def plot_ratio_comparison(self, ax, results, title, color, reference_line):
         """Helper method to plot box plot for intensity ratios of one organism.
         Args:
             ax: Matplotlib axis

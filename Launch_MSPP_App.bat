@@ -12,7 +12,7 @@ echo ===============================================================
 echo.
 
 REM Run the Python launcher
-"c:\GitHub\BYU-MS-Core-Automative-Proteomics-Tools\.venv\Scripts\python.exe" launch_app.py
+"C:\GitHub\BYU-MS-Core-Automative-Proteomics-Tools\.pixi\envs\default\python.exe" launch_app.py
 
 if errorlevel 1 (
     echo.
