@@ -606,7 +606,7 @@ def upload_files():
     temp_paths = []
 
     for file in files:
-        if file.filename.endswith(('.tsv', '.txt')):
+        if file.filename and file.filename.endswith(('.tsv', '.txt')):
             # Save to temp directory
             temp_path = Path(tempfile.gettempdir()) / file.filename
             file.save(temp_path)
