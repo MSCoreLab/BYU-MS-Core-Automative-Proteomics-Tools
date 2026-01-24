@@ -39,7 +39,7 @@ python -m pip install --upgrade pip --quiet
 # Install Python dependencies
 Write-Host ""
 Write-Host "📥 Installing Python dependencies..." -ForegroundColor Yellow
-pip install -r requirements.txt --quiet
+pip install -e . --quiet
 Write-Host "✅ Python dependencies installed" -ForegroundColor Green
 
 # Check if Node.js is installed
