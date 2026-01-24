@@ -8,6 +8,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-01-23
+
+### Removed
+- **Total Ion Current (TIC) Analysis Module**
+  - Removed `TICAnalyzer` class and all mzML processing logic from backend
+  - Removed TIC-related API endpoints (`/api/upload/mzml`, `/api/mzml/files`, `/api/plot/tic`, `/api/export/tic`)
+  - Removed TIC Analysis tab and mzML upload components from React frontend
+  - Cleaned up frontend state management (removed mzML file state variables and handlers)
+  - **Reason**: TIC plotting functionality could not be reliably implemented; removed to keep application lean and focused on core protein analysis features
+
+### Under Development
+- **Enhanced Fold Change Algorithm for Box Plots**
+  - Investigating systematic deviations from expected fold changes (E.coli: -2.0, Yeast: +1.0)
+  - Proposed enhancements under review:
+    - Minimum intensity threshold filtering to reduce measurement noise
+    - HeLa-based median normalization to correct for loading differences between runs
+    - IQR-based outlier removal to reduce impact of extreme values
+    - Duplicate protein ID handling via mean intensity aggregation
+  - Current algorithm correctly identifies consensus proteins and calculates log2(E25/E100) ratios
+  - Goal: Improve alignment of observed intensity ratios with theoretical spike-in fold changes
+
 ## [0.2.0] - 2026-01-02
 
 ### Added
