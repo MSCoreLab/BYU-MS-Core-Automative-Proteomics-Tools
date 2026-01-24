@@ -38,7 +38,7 @@ Before starting this tutorial, ensure you have:
 
 ### Important Notes
 
-⏱️ **Estimated time:** Data processing typically takes 30-120 minutes depending on the number of files and your computer's specifications.
+⏱️ **Estimated time:** Data processing typically takes 30–120 minutes depending on the number of files and your computer's specifications.
 
 ------------------------------------------------------------------------
 
@@ -48,7 +48,7 @@ Before starting this tutorial, ensure you have:
 
 Locate the Fragpipe shortcut on your desktop and right-click it, then select **"Run as administrator"**.
 
-⚠️ **Important:** Fragpipe must be run as administrator or it will not function properly.
+⚠️ **Important:** Fragpipe must be run as administrator, or it will not function properly.
 
 ![Fragpipe desktop shortcut](./screenshots/Step_0.png)
 
@@ -166,7 +166,7 @@ You need to name the experimental condition for each file and assign bioreplicat
 
 \- Leaving experiment or bioreplicate fields blank (even though Fragpipe tells you it can be empty, FragPipe Analyst needs these annotations to work)
 
-These information are **essential** for Fragpipe Analyst to perform statistical comparisons correctly.
+This data is **essential** for Fragpipe Analyst to perform statistical comparisons correctly.
 
 Whatever your inputs are here, they will be exported to an editable output file that Fragpipe Analyst can read (we will get to that later). So don't fret if you make a mistake, just remember to correct it in the output file before using Fragpipe Analyst.
 
@@ -210,7 +210,7 @@ Click OK. Fragpipe will then download the FASTA file. When its finished, save th
 
 Make sure that the correct FASTA file has appeared in the database path.
 
-If your FASTA file doesn't already have decoys added, click **Add decoys** to generate decoy sequences. Otherwise ignore this step.
+If your FASTA file doesn't already have decoys added, click **Add decoys** to generate decoy sequences. Otherwise, ignore this step.
 
 If you downloaded your FASTA file in the previous step, you may simply proceed to the next step.
 
@@ -222,7 +222,7 @@ If you downloaded your FASTA file in the previous step, you may simply proceed t
 
 Navigate to the **Run** tab, click **Browse** to select your output directory (ensure you have at least 3x your raw data size in free space), then click **Run**.
 
-⏱️ **Expected time:** Processing typically takes 30-120 minutes depending on the number of files and your computer specifications.
+⏱️ **Expected time:** Processing typically takes 30–120 minutes depending on the number of files and your computer specifications.
 
 ![Run tab](./screenshots/Step_17.png)
 
@@ -332,7 +332,7 @@ The `experiment.annotation.tsv` file created by Fragpipe needs to be modified be
 
 #### Requirement 1: Unique sample_name for every file
 
-\*Editor's note: I forgot to mention that you can totally have unique sample names (under sample_name column) for every file in Fragpipe. You just need to make sure that you annotate your files in Step 13 so that each of your file has a unique sample name. If Fragpipe for some reason didn't preserve your annotations, keep reading. Otherwise skip to Requirement 2.
+\*Editor's note: I forgot to mention that you can totally have unique sample names (under sample_name column) for every file in Fragpipe. You just need to make sure that you annotate your files in Step 13 so that each of your file has a unique sample name. If Fragpipe for some reason didn't preserve your annotations, keep reading. Otherwise, skip to Requirement 2.
 
 **Problem:** Fragpipe may generate duplicate `sample_name` values for different files.
 
