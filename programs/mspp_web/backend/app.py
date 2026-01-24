@@ -9,7 +9,6 @@ import base64
 import contextlib
 import io
 import logging
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -20,7 +19,6 @@ import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-from pyteomics import mzml
 
 matplotlib.use('Agg')  # Non-interactive backend
 
@@ -574,144 +572,6 @@ class PlotGenerator:
         ax.legend(fontsize=9, loc="upper right")
 
 
-class TICAnalyzer:
-    """Handles mzML file processing and TIC extraction."""
-
-    def __init__(self):
-        self.cached_tic_data = {}
-
-    def extract_tic_from_mzml(self, file_path):
-        """Extract Total Ion Current (TIC) from an mzML file.
-
-        For DIA data, processes all scans regardless of MS level.
-        For DDA data, processes MS1 scans only.
-
-        Args:
-            file_path: Path to the mzML file
-
-        Returns:
-            pd.DataFrame with columns: scan_number, retention_time, tic
-        """
-        # Check cache first
-        if file_path in self.cached_tic_data:
-            return self.cached_tic_data[file_path]
-
-        tic_data = []
-
-        try:
-            # Open mzML file and iterate through scans
-            with mzml.read(file_path) as reader:
-                scan_count = 0
-                ms1_count = 0
-                rt_values = []  # Track RT values for unit detection
-
-                for scan in reader:
-                    scan_count += 1
-
-                    # Get MS level (try different possible keys)
-                    ms_level = scan.get('ms level', scan.get('msLevel', 2))
-
-                    if ms_level == 1:
-                        ms1_count += 1
-
-                    try:
-                        # Get scan index
-                        scan_num = scan.get('index', scan.get('num', scan_count))
-
-                        # Get retention time (try different possible locations)
-                        rt = None
-                        if 'scanList' in scan and 'scan' in scan['scanList']:
-                            rt = scan['scanList']['scan'][0].get('scan start time')
-                        if rt is None and 'retentionTime' in scan:
-                            rt = scan['retentionTime']
-                        if rt is None:
-                            rt = scan_count  # Fallback to scan number
-
-                        # Calculate TIC: sum of all intensities in the scan
-                        intensities = scan.get('intensity array', [])
-                        tic = np.sum(intensities)
-
-                        tic_data.append({
-                            'scan_number': scan_num,
-                            'retention_time': rt,
-                            'tic': tic
-                        })
-                        rt_values.append(rt)
-                    except Exception as scan_error:
-                        logging.warning(f"Error processing scan {scan_count}: {scan_error}")
-                        continue
-
-                # Detect RT units and convert if necessary
-                if rt_values:
-                    max_rt = max(rt_values)
-                    min_rt = min(rt_values)
-
-                    # If max RT > 500, likely in seconds (typical runs are < 480 min)
-                    if max_rt > 500:
-                        logging.warning(f"Detected RT in seconds (max: {max_rt:.1f}s). Converting to minutes.")
-                        for data_point in tic_data:
-                            data_point['retention_time'] /= 60.0
-                        max_rt /= 60.0
-                        min_rt /= 60.0
-
-                    # Sanity check for unusual RT ranges
-                    if max_rt > 600:
-                        logging.warning(f"⚠️  Unusual retention time range detected: {min_rt:.1f} - {max_rt:.1f} min. "
-                                      f"Typical LC-MS runs are 60-480 minutes. Check acquisition metadata.")
-
-                    logging.info(f"Processed {file_path}: {scan_count} total scans, {ms1_count} MS1 scans (DIA: {ms1_count == 0})")
-                    logging.info(f"  RT range: {min_rt:.2f} - {max_rt:.2f} min")
-                else:
-                    logging.info(f"Processed {file_path}: {scan_count} total scans, {ms1_count} MS1 scans (DIA: {ms1_count == 0})")
-
-            if len(tic_data) == 0:
-                logging.warning(f"No scans with intensity data found in {file_path}")
-                return None
-
-            df = pd.DataFrame(tic_data)
-            # Cache the result
-            self.cached_tic_data[file_path] = df
-            logging.info(f"Extracted TIC data: {len(df)} points, RT range: {df['retention_time'].min():.2f}-{df['retention_time'].max():.2f} min")
-            return df
-
-        except Exception as e:
-            logging.error(f"Error processing mzML file {file_path}: {e}", exc_info=True)
-            return None
-
-    def create_tic_plot(self, tic_dict, figsize=(14, 8)):
-        """Create TIC comparison plot for multiple samples.
-
-        Args:
-            tic_dict: Dict mapping sample_name -> tic_dataframe
-            figsize: Tuple of (width, height)
-
-        Returns:
-            Matplotlib figure object
-        """
-        fig, ax = plt.subplots(figsize=figsize)
-
-        # Color palette for different samples
-        colors = plt.colormaps['tab10'](np.linspace(0, 1, len(tic_dict)))
-
-        for (sample_name, tic_df), color in zip(tic_dict.items(), colors, strict=False):
-            if tic_df is not None and len(tic_df) > 0:
-                ax.plot(tic_df['retention_time'], tic_df['tic'],
-                       label=sample_name, alpha=0.8, linewidth=1.5, color=color)
-
-        ax.set_xlabel('Retention Time (min)', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Total Ion Current', fontsize=12, fontweight='bold')
-        ax.set_title('TIC Comparison Across Samples', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='best')
-        ax.grid(True, alpha=0.3)
-        ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0))
-        plt.tight_layout()
-
-        return fig
-
-    def clear_cache(self):
-        """Clear cached TIC data."""
-        self.cached_tic_data.clear()
-
 '''
 The main Python script for the heavy lifting ends here. The rest is how the Flask app is set up and routes defined for the webapp.
 If you are interested in tweaking or extending the functionality of the webapp interfaces, check out the frontend code in programs/mspp_web/frontend.
@@ -720,9 +580,7 @@ If you are interested in tweaking or extending the functionality of the webapp i
 # Global instances
 processor = DataProcessor()
 plotter = PlotGenerator(processor)
-tic_analyzer = TICAnalyzer()
 uploaded_files = {}  # Store uploaded files temporarily
-uploaded_mzml_files = {}  # Store uploaded mzML files separately
 
 
 # Flask routes
@@ -918,120 +776,3 @@ def export_all_plots():
         return jsonify({
             'error': 'An internal error occurred while exporting plots.'
         }), 500
-
-
-# ==================== TIC Analysis Endpoints ====================
-
-@app.route('/api/upload/mzml', methods=['POST'])
-def upload_mzml_files():
-    """Handle mzML file uploads for TIC analysis."""
-    if 'files' not in request.files:
-        return jsonify({'error': 'No files provided'}), 400
-
-    files = request.files.getlist('files')
-    temp_paths = []
-
-    for file in files:
-        if file.filename.endswith('.mzML'):
-            # Save to temp directory
-            temp_path = Path(tempfile.gettempdir()) / file.filename
-            file.save(temp_path)
-            temp_paths.append(str(temp_path))
-            uploaded_mzml_files[file.filename] = str(temp_path)
-
-    return jsonify({
-        'message': f'{len(temp_paths)} mzML files uploaded successfully',
-        'files': [Path(p).name for p in temp_paths]
-    })
-
-
-@app.route('/api/mzml/files', methods=['GET'])
-def list_mzml_files():
-    """List uploaded mzML files."""
-    return jsonify({'files': list(uploaded_mzml_files.keys())})
-
-
-@app.route('/api/mzml/files', methods=['DELETE'])
-def clear_mzml_files():
-    """Clear all uploaded mzML files."""
-    for filepath in uploaded_mzml_files.values():
-        with contextlib.suppress(Exception):
-            Path(filepath).unlink(missing_ok=True)
-    uploaded_mzml_files.clear()
-    tic_analyzer.clear_cache()
-    return jsonify({'message': 'All mzML files cleared'})
-
-
-@app.route('/api/plot/tic', methods=['POST'])
-def generate_tic_plot():
-    """Generate TIC comparison plot from uploaded mzML files."""
-    if not uploaded_mzml_files:
-        return jsonify({'error': 'No mzML files uploaded'}), 400
-
-    try:
-        # Extract TIC from each file
-        tic_dict = {}
-        for filename, filepath in uploaded_mzml_files.items():
-            sample_name = Path(filename).stem
-            tic_df = tic_analyzer.extract_tic_from_mzml(filepath)
-            if tic_df is not None:
-                tic_dict[sample_name] = tic_df
-
-        if not tic_dict:
-            return jsonify({'error': 'Failed to extract TIC data from any file'}), 400
-
-        # Generate plot
-        fig = tic_analyzer.create_tic_plot(tic_dict)
-        img_base64 = fig_to_base64(fig)
-
-        return jsonify({'image': img_base64})
-
-    except Exception:
-        logging.exception("Unexpected error while generating TIC plot")
-        return jsonify({
-            'error': 'An internal error occurred while generating the TIC plot.'
-        }), 500
-
-
-@app.route('/api/export/tic', methods=['POST'])
-def export_tic_plot():
-    """Export TIC plot as PNG file."""
-    if not uploaded_mzml_files:
-        return jsonify({'error': 'No mzML files uploaded'}), 400
-
-    try:
-        from flask import send_file
-
-        # Extract TIC from each file
-        tic_dict = {}
-        for filename, filepath in uploaded_mzml_files.items():
-            sample_name = Path(filename).stem
-            tic_df = tic_analyzer.extract_tic_from_mzml(filepath)
-            if tic_df is not None:
-                tic_dict[sample_name] = tic_df
-
-        if not tic_dict:
-            return jsonify({'error': 'Failed to extract TIC data from any file'}), 400
-
-        # Generate high-DPI plot
-        fig = tic_analyzer.create_tic_plot(tic_dict, figsize=(14, 8))
-
-        # Save to bytes buffer
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-        buf.seek(0)
-        plt.close(fig)
-
-        return send_file(buf, mimetype='image/png', as_attachment=True, download_name='tic_comparison.png')
-
-    except Exception:
-        logging.exception("Unexpected error while exporting TIC plot")
-        return jsonify({
-            'error': 'An internal error occurred while exporting the TIC plot.'
-        }), 500
-
-
-if __name__ == '__main__':
-    debug_env = os.getenv("FLASK_DEBUG", "").lower()
-    debug_mode = debug_env in {"1", "true", "yes", "on"}
-    app.run(debug=debug_mode, port=5000)
