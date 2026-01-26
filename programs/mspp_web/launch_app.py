@@ -35,17 +35,17 @@ if __name__ == '__main__':
     # Wait for Flask to start
     time.sleep(2)
 
-    print("✅ Backend ready on http://localhost:5000")
+    print("✅ Backend ready on http://127.0.0.1:5000")
     print("🎨 Opening application in your default browser...\n")
 
     # Open in default browser only
-    webbrowser.open('http://localhost:5000')
+    webbrowser.open('http://127.0.0.1:5000')
 
     print("=" * 60)
     print("✨ Application is running!")
     print("=" * 60)
     print("\n📌 The app should open in your browser automatically.")
-    print("📌 If not, manually visit: http://localhost:5000")
+    print("📌 If not, manually visit: http://127.0.0.1:5000")
     print("\n⚠️  Press CTRL+C to stop the server when done.\n")
 
     try:

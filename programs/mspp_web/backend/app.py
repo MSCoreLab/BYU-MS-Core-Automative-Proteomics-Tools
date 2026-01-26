@@ -35,6 +35,16 @@ CORS(app)  # Enable CORS for React dev server
 plt.style.use('dark_background')
 
 
+@app.after_request
+def fix_mime_types(response):
+    """Force correct MIME types for JS/CSS to bypass Windows Registry issues."""
+    if request.path.endswith('.js'):
+        response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+    elif request.path.endswith('.css'):
+        response.headers['Content-Type'] = 'text/css; charset=utf-8'
+    return response
+
+
 # Shared utility functions
 def fig_to_base64(fig):
     """Convert matplotlib figure to base64 encoded PNG."""
