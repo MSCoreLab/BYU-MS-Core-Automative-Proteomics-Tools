@@ -68,7 +68,7 @@ class DataProcessor:
             mask = upper.str.contains("|".join(patterns), regex=True)
             result = result.where(~mask, organism)
 
-        return pd.Categorical(result, categories=self.ORGANISMS + ["Unknown"])
+        return pd.Categorical(result, categories=self.ORGANISMS)
 
     def load_data(self, file_paths):
         """Load data from selected files with caching."""
@@ -100,6 +100,10 @@ class DataProcessor:
             df["Organism"] = (
                 self.identify_organism_vectorized(df[protein_col]) if protein_col else "Unknown"
             )
+
+            # Filter out Unknown organisms
+            df = df[df["Organism"].isin(self.ORGANISMS)]
+
             all_data.append(df)
 
         # Cache the result
@@ -188,20 +192,14 @@ class DataProcessor:
     def calculate_protein_id_counts(self, data):
         """Calculate protein ID counts grouped by organism and source file."""
         counts = data.groupby(["Source_File", "Organism"]).size().unstack(fill_value=0)
-        org_order = self.ORGANISMS + ["Unknown"]
+        org_order = self.ORGANISMS
         counts = counts.reindex(
             columns=[col for col in org_order if col in counts.columns], fill_value=0
         )
         return counts
 
     def calculate_sample_comparison_data(self, data):
-        """Calculate log2 intensity ratios between E25/E100 sample groups.
-
-        Strategy:
-        1. First, try to detect E25/E100 from explicit filename patterns
-        2. If not found, automatically categorize using E.coli median intensities
-        3. Remember: E25 ↔ Y150 (higher yeast), E100 ↔ Y75 (lower yeast)
-
+        """Calculate log2 intensity ratios between E25/E100 sample groups by detecting E25/E100 from explicit filename patterns.
         Returns:
             Dict with 'hela_results', 'ecoli_results', 'yeast_results', 'sample_pairs'
             Each result is a list of (ratio_array, sample_pair_label) tuples
@@ -239,54 +237,77 @@ class DataProcessor:
             logging.info(f"Using explicit sample naming: E25/Y150={[Path(s).stem for s in e25_samples]}, "
                         f"E100/Y75={[Path(s).stem for s in e100_samples]}")
         else:
-            # Strategy 2: Fallback to automatic categorization using E.coli median
-            logging.info("No explicit E25/E100 naming found. Using E.coli median-based categorization.")
-            categorization_method = "E.coli median auto-detection"
-
-            # Calculate median E.coli intensity for each sample
-            ecoli_medians = {}
-            for source_file in sample_files:
-                sample_data = data[data["Source_File"] == source_file]
-
-                # Filter for E.coli proteins only
-                ecoli_data = sample_data[sample_data["Organism"] == "E.coli"]
-
-                # Get the intensity column for this sample
-                intensity_col = self.file_to_raw_column.get(source_file)
-                if intensity_col and intensity_col in ecoli_data.columns:
-                    # Calculate median of non-zero E.coli intensities
-                    intensities = ecoli_data[intensity_col]
-                    valid_intensities = intensities[(intensities > 0) & (intensities.notna())]
-                    if len(valid_intensities) > 0:
-                        ecoli_medians[source_file] = valid_intensities.median()
-                    else:
-                        ecoli_medians[source_file] = 0
-                else:
-                    ecoli_medians[source_file] = 0
-
-            # Sort samples by E.coli median intensity
-            sorted_samples = sorted(ecoli_medians.keys(), key=lambda x: ecoli_medians[x])
-
-            # Split into E25 (lower half) and E100 (upper half) groups
-            n_samples = len(sorted_samples)
-            split_point = n_samples // 2
-
-            e25_samples = sorted_samples[:split_point] if split_point > 0 else []
-            e100_samples = sorted_samples[split_point:]
-
-            if len(e25_samples) == 0 or len(e100_samples) == 0:
-                raise ValueError("Could not split samples into E25/E100 groups. Need at least 2 samples.")
-
-            logging.info(f"Auto-categorized samples: E25/Y150={[Path(s).stem for s in e25_samples]}, "
-                        f"E100/Y75={[Path(s).stem for s in e100_samples]}")
+            raise ValueError(
+        "Could not detect E25/E100 samples from filenames. "
+        "Please ensure filenames contain 'E25'/'Y150' or 'E100'/'Y75' identifiers."
+        )
 
         # Pair E25 with E100 samples
-        # For uneven groups, pair as many as possible
         sample_pairs = []
-        for i in range(min(len(e25_samples), len(e100_samples))):
-            e25_sample = e25_samples[i]
-            e100_sample = e100_samples[i]
-            sample_pairs.append((e25_sample, e100_sample))
+
+        # Strict pairing strategy: Match by mix parameters (suffix)
+        # Dictionary structure: { suffix: {'E25': filename, 'E100': filename} }
+        strict_pairs_dict = {}
+        singlets = []
+
+        def get_mix_suffix(filename):
+            """Extracts the unique mix parameters after the E25/E100 identifier."""
+            # Match pattern: ...E25_ or ...E100_ followed by the rest
+            # Handles E25, E-25, E_25, Y150, etc.
+            match = re.search(r'(?:E[-_]?(?:25|100)|Y[-_]?(?:150|75))[-_](.*)', Path(filename).stem, re.IGNORECASE)
+            return match.group(1) if match else None
+
+        # Populate dictionary with E25 samples
+        for s in e25_samples_explicit:
+            suffix = get_mix_suffix(s)
+            if suffix:
+                if suffix not in strict_pairs_dict:
+                    strict_pairs_dict[suffix] = {}
+                strict_pairs_dict[suffix]['E25'] = s
+            else:
+                singlets.append(s)
+
+        # Populate dictionary with E100 samples
+        for s in e100_samples_explicit:
+            suffix = get_mix_suffix(s)
+            if suffix:
+                if suffix not in strict_pairs_dict:
+                    strict_pairs_dict[suffix] = {}
+                strict_pairs_dict[suffix]['E100'] = s
+            else:
+                singlets.append(s)
+
+        # Collect valid pairs and identify singlets from the dictionary
+        strict_pairs = []
+        for suffix, pair in strict_pairs_dict.items():
+            if 'E25' in pair and 'E100' in pair:
+                strict_pairs.append((pair['E25'], pair['E100']))
+            else:
+                # Add the lone file to singlets
+                singlets.extend(pair.values())
+
+        # Decide which pairing method to use
+        # PRIORITIZE STRICT PAIRING: If we found ANY valid pairs using the naming convention,
+        # we strictly use them and ignore the "singlet" noise.
+        # We only fall back to index pairing if strict pairing completely failed (0 pairs).
+        if len(strict_pairs) > 0:
+            logging.info(f"Strict pairing success: {len(strict_pairs)} pairs found.")
+            if singlets:
+                # We do not fallback here. We simply exclude the singlets to prevent
+                # breaking the valid pairs we found.
+                logging.warning(f"Excluded {len(singlets)} singlet files (no matching pair found): {singlets}")
+            sample_pairs = sorted(strict_pairs) # Sort for consistency
+        else:
+            # Fallback to simple sorting ONLY if strict pairing found nothing
+            # (e.g. naming convention not used at all)
+            logging.warning("Strict pairing failed (no matching suffixes found). Falling back to index-based pairing.")
+            
+            # Sort separate lists and pair by index
+            e25_sorted = sorted(e25_samples)
+            e100_sorted = sorted(e100_samples)
+            
+            for i in range(min(len(e25_sorted), len(e100_sorted))):
+                sample_pairs.append((e25_sorted[i], e100_sorted[i]))
 
         # Calculate intensity ratios for each organism and sample pair
         hela_results = []
@@ -294,19 +315,27 @@ class DataProcessor:
         yeast_results = []
 
         for e25_sample, e100_sample in sample_pairs:
-            # Create label based on categorization method
-            e25_name = Path(e25_sample).stem
-            e100_name = Path(e100_sample).stem
+            # Helper to extract Queue PK (numeric ID) from .raw column
+            def get_queue_pk(sample_name):
+                raw_col = self.file_to_raw_column.get(sample_name, "")
+                if raw_col:
+                    # Extract filename from path (e.g. "D:\QC\57349.raw" -> "57349.raw")
+                    raw_filename = Path(raw_col).stem
+                    # Find first sequence of digits
+                    match = re.search(r'(\d+)', raw_filename)
+                    if match:
+                        return match.group(1)
+                # Fallback: try to find digits in the source filename itself
+                match = re.search(r'(\d+)', Path(sample_name).stem)
+                return match.group(1) if match else Path(sample_name).stem
 
-            # Only create labels if using explicit naming
+            e25_id = get_queue_pk(e25_sample)
+            e100_id = get_queue_pk(e100_sample)
+
+            # Create label based on categorization method
             if categorization_method == "explicit naming (E25/E100/Y150/Y75)":
-                # Use condition names from filenames for labels
-                if len(sample_pairs) == 1:
-                    pair_label = f"{e25_name} vs {e100_name}"
-                else:
-                    pair_label = f"{e25_name} vs {e100_name}"
+                pair_label = f"{e25_id} vs {e100_id}"
             else:
-                # No label for auto-detection (no legend will be shown)
                 pair_label = None
 
             # Calculate log2 ratios for each organism (E25/E100)
@@ -350,7 +379,7 @@ class PlotGenerator:
     """Handles all matplotlib plotting and visualization logic for web backend."""
 
     # Plot color scheme
-    COLORS = {"HeLa": "#9b59b6", "E.coli": "#e67e22", "Yeast": "#16a085", "Unknown": "#95a5a6"}
+    COLORS = {"HeLa": "#9b59b6", "E.coli": "#e67e22", "Yeast": "#16a085"}
 
     def __init__(self, processor):
         """Initialize with a DataProcessor instance."""
@@ -365,7 +394,7 @@ class PlotGenerator:
             Matplotlib figure object
         """
         counts = self.processor.calculate_protein_id_counts(data)
-        org_order = self.processor.ORGANISMS + ["Unknown"]
+        org_order = self.processor.ORGANISMS
         counts = counts.reindex(
             columns=[col for col in org_order if col in counts.columns], fill_value=0
         )
@@ -458,7 +487,7 @@ class PlotGenerator:
         if hela_results:
             self.plot_ratio_comparison(
                 ax1, hela_results,
-                title="HeLa Log2 Intensity Ratio (E25/E100 = constant)",
+                title="HeLa Log2 Intensity Ratio (Constant)",
                 color="#9b59b6",  # Purple
                 reference_line=0  # Expected: 0 (constant concentration - sanity check)
             )
@@ -547,8 +576,10 @@ class PlotGenerator:
         plt.setp(bp["medians"], color="#2c3e50", linewidth=2.5)
 
         # Add median value annotations
+        medians = []
         for i, data_arr in enumerate(data_arrays):
             median_val = np.median(data_arr)
+            medians.append(median_val)
             ax.text(
                 i + 1, median_val, f"{median_val:.2f}",
                 fontsize=9, va="bottom", ha="center", color="white",
@@ -560,6 +591,11 @@ class PlotGenerator:
         ax.axhline(y=reference_line, color="#f39c12", linestyle="--",
                    linewidth=2, alpha=0.9,
                    label=f"Expected: {reference_line}")
+
+        # Add mean of medians to legend
+        if medians:
+            mean_median = np.mean(medians)
+            ax.plot([], [], ' ', label=f"Mean Median: {mean_median:.2f}")
 
         # Configure axes
         ax.set_ylabel("Log2 Intensity Ratio", fontsize=11, fontweight="bold")
