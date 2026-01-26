@@ -254,7 +254,8 @@ class DataProcessor:
             """Extracts the unique mix parameters after the E25/E100 identifier."""
             # Match pattern: ...E25_ or ...E100_ followed by the rest
             # Handles E25, E-25, E_25, Y150, etc.
-            match = re.search(r'(?:E[-_]?(?:25|100)|Y[-_]?(?:150|75))[-_](.*)', Path(filename).stem, re.IGNORECASE)
+            # NOTE: filename is already a stem (no extension), so we search it directly.
+            match = re.search(r'(?:E[-_]?(?:25|100)|Y[-_]?(?:150|75))[-_](.*)', filename, re.IGNORECASE)
             return match.group(1) if match else None
 
         # Populate dictionary with E25 samples
@@ -263,7 +264,13 @@ class DataProcessor:
             if suffix:
                 if suffix not in strict_pairs_dict:
                     strict_pairs_dict[suffix] = {}
-                strict_pairs_dict[suffix]['E25'] = s
+                
+                # Check for collision: Is this slot already filled?
+                if 'E25' in strict_pairs_dict[suffix]:
+                    logging.warning(f"Duplicate suffix found for E25: '{suffix}'. Ignoring '{s}' to preserve existing pair.")
+                    singlets.append(s)
+                else:
+                    strict_pairs_dict[suffix]['E25'] = s
             else:
                 singlets.append(s)
 
@@ -273,7 +280,13 @@ class DataProcessor:
             if suffix:
                 if suffix not in strict_pairs_dict:
                     strict_pairs_dict[suffix] = {}
-                strict_pairs_dict[suffix]['E100'] = s
+                
+                # Check for collision: Is this slot already filled?
+                if 'E100' in strict_pairs_dict[suffix]:
+                    logging.warning(f"Duplicate suffix found for E100: '{suffix}'. Ignoring '{s}' to preserve existing pair.")
+                    singlets.append(s)
+                else:
+                    strict_pairs_dict[suffix]['E100'] = s
             else:
                 singlets.append(s)
 
@@ -287,20 +300,33 @@ class DataProcessor:
                 singlets.extend(pair.values())
 
         # Decide which pairing method to use
-        # PRIORITIZE STRICT PAIRING: If we found ANY valid pairs using the naming convention,
-        # we strictly use them and ignore the "singlet" noise.
-        # We only fall back to index pairing if strict pairing completely failed (0 pairs).
+        
+        # Check if we detected ANY files following the strict naming convention
+        pattern_detected = len(strict_pairs) > 0 or len(singlets) > 0
+
         if len(strict_pairs) > 0:
+            # OPTION 1: Strict Pairing Success
+            # We found valid pairs matching the pattern. Use them!
+            # We explicitly IGNORE any stray singlets (like "57349...600") to prevent them
+            # from breaking the valid pairs.
             logging.info(f"Strict pairing success: {len(strict_pairs)} pairs found.")
             if singlets:
-                # We do not fallback here. We simply exclude the singlets to prevent
-                # breaking the valid pairs we found.
-                logging.warning(f"Excluded {len(singlets)} singlet files (no matching pair found): {singlets}")
+                logging.warning(f"Excluded {len(singlets)} singlet files (suffixes did not match any pair): {singlets}")
             sample_pairs = sorted(strict_pairs) # Sort for consistency
+            
         else:
-            # Fallback to simple sorting ONLY if strict pairing found nothing
-            # (e.g. naming convention not used at all)
-            logging.warning("Strict pairing failed (no matching suffixes found). Falling back to index-based pairing.")
+            # OPTION 2: Strict Pairing Failed (Found 0 pairs)
+            # This happens if:
+            # A) The user didn't use the naming convention (Legacy mode)
+            # B) The user TRIED to use it, but filenames didn't match (Suffix Mismatch)
+            #
+            # In either case, we proceed with Index-Based Pairing to ensure a plot is generated.
+            # "Proceed regardless" strategy.
+            
+            if pattern_detected:
+                logging.warning("Strict pairing found specific suffixes but ZERO matches. Falling back to index-based pairing (Potential Mismatch Risk).")
+            else:
+                logging.warning("No specific naming pattern detected. Falling back to index-based pairing.")
             
             # Sort separate lists and pair by index
             e25_sorted = sorted(e25_samples)
@@ -326,8 +352,8 @@ class DataProcessor:
                     if match:
                         return match.group(1)
                 # Fallback: try to find digits in the source filename itself
-                match = re.search(r'(\d+)', Path(sample_name).stem)
-                return match.group(1) if match else Path(sample_name).stem
+                match = re.search(r'(\d+)', sample_name)
+                return match.group(1) if match else sample_name
 
             e25_id = get_queue_pk(e25_sample)
             e100_id = get_queue_pk(e100_sample)
