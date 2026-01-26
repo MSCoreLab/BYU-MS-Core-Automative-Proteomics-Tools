@@ -9,6 +9,7 @@ import base64
 import contextlib
 import io
 import logging
+import mimetypes
 import re
 import tempfile
 from pathlib import Path
@@ -19,6 +20,11 @@ import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+
+# FIX: Explicitly set MIME type for .js files to avoid Windows Registry issues
+# On some Windows machines, .js is served as text/plain, blocking execution.
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('text/css', '.css')
 
 matplotlib.use('Agg')  # Non-interactive backend
 
@@ -264,7 +270,7 @@ class DataProcessor:
             if suffix:
                 if suffix not in strict_pairs_dict:
                     strict_pairs_dict[suffix] = {}
-                
+
                 # Check for collision: Is this slot already filled?
                 if 'E25' in strict_pairs_dict[suffix]:
                     logging.warning(f"Duplicate suffix found for E25: '{suffix}'. Ignoring '{s}' to preserve existing pair.")
@@ -280,7 +286,7 @@ class DataProcessor:
             if suffix:
                 if suffix not in strict_pairs_dict:
                     strict_pairs_dict[suffix] = {}
-                
+
                 # Check for collision: Is this slot already filled?
                 if 'E100' in strict_pairs_dict[suffix]:
                     logging.warning(f"Duplicate suffix found for E100: '{suffix}'. Ignoring '{s}' to preserve existing pair.")
@@ -300,7 +306,6 @@ class DataProcessor:
                 singlets.extend(pair.values())
 
         # Decide which pairing method to use
-        
         # Check if we detected ANY files following the strict naming convention
         pattern_detected = len(strict_pairs) > 0 or len(singlets) > 0
 
@@ -313,7 +318,7 @@ class DataProcessor:
             if singlets:
                 logging.warning(f"Excluded {len(singlets)} singlet files (suffixes did not match any pair): {singlets}")
             sample_pairs = sorted(strict_pairs) # Sort for consistency
-            
+
         else:
             # OPTION 2: Strict Pairing Failed (Found 0 pairs)
             # This happens if:
@@ -322,16 +327,16 @@ class DataProcessor:
             #
             # In either case, we proceed with Index-Based Pairing to ensure a plot is generated.
             # "Proceed regardless" strategy.
-            
+
             if pattern_detected:
                 logging.warning("Strict pairing found specific suffixes but ZERO matches. Falling back to index-based pairing (Potential Mismatch Risk).")
             else:
                 logging.warning("No specific naming pattern detected. Falling back to index-based pairing.")
-            
+
             # Sort separate lists and pair by index
             e25_sorted = sorted(e25_samples)
             e100_sorted = sorted(e100_samples)
-            
+
             for i in range(min(len(e25_sorted), len(e100_sorted))):
                 sample_pairs.append((e25_sorted[i], e100_sorted[i]))
 
