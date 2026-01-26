@@ -19,7 +19,8 @@ sys.path.insert(0, str(backend_path))
 
 def start_flask():
     """Start Flask server in background thread."""
-    app.run(port=5000, debug=False, use_reloader=False, threaded=True)
+    # Port 5000 is often blocked/used on Windows. Using 8050 is safer.
+    app.run(port=8050, debug=False, use_reloader=False, threaded=True)
 
 
 if __name__ == '__main__':
@@ -35,17 +36,17 @@ if __name__ == '__main__':
     # Wait for Flask to start
     time.sleep(2)
 
-    print("✅ Backend ready on http://127.0.0.1:5000")
+    print("✅ Backend ready on http://127.0.0.1:8050")
     print("🎨 Opening application in your default browser...\n")
 
     # Open in default browser only
-    webbrowser.open('http://127.0.0.1:5000')
+    webbrowser.open('http://127.0.0.1:8050')
 
     print("=" * 60)
     print("✨ Application is running!")
     print("=" * 60)
     print("\n📌 The app should open in your browser automatically.")
-    print("📌 If not, manually visit: http://127.0.0.1:5000")
+    print("📌 If not, manually visit: http://127.0.0.1:8050")
     print("\n⚠️  Press CTRL+C to stop the server when done.\n")
 
     try:
