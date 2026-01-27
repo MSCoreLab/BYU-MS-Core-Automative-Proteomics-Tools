@@ -8,9 +8,9 @@ import contextlib
 import io
 import logging
 import mimetypes
+import os
 import tempfile
 from pathlib import Path
-import os
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
