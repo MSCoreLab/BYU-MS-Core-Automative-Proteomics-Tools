@@ -100,7 +100,7 @@ def generate_plot(chart_type):
         return jsonify({'image': fig_to_base64(fig)})
     except Exception as e:
         logging.exception(f"Plot generation failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Plot generation failed due to an internal error.'}), 500
 
 @app.route('/api/export/<chart_type>', methods=['POST'])
 def export_plot(chart_type):
