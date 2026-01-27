@@ -10,6 +10,7 @@ import logging
 import mimetypes
 import tempfile
 from pathlib import Path
+import os
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
@@ -126,5 +127,6 @@ def export_plot(chart_type):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
-    # For standalone run (dev)
-    app.run(port=8050, debug=True)
+    # For standalone run (dev); enable debug only if FLASK_DEBUG=1
+    debug_mode = bool(int(os.getenv("FLASK_DEBUG", "0")))
+    app.run(port=8050, debug=debug_mode)
