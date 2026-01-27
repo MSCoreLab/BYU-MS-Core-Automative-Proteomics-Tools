@@ -43,7 +43,7 @@ def add_security_headers(response):
         response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
     elif request.path.endswith('.css'):
         response.headers['Content-Type'] = 'text/css; charset=utf-8'
-    
+
     # Disable caching completely to ensure fresh loads
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
@@ -52,7 +52,7 @@ def add_security_headers(response):
     # Permissive CSP to allow local execution even with strict Group Policy
     # "unsafe-eval" is often needed for dev builds or specific React setups
     response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;"
-    
+
     return response
 
 
