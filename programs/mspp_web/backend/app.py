@@ -124,7 +124,7 @@ def export_plot(chart_type):
         return send_file(buf, mimetype='image/png', as_attachment=True, download_name=name)
     except Exception as e:
         logging.exception(f"Export failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Export failed due to an internal error.'}), 500
 
 if __name__ == "__main__":
     # For standalone run (dev); enable debug only if FLASK_DEBUG=1
