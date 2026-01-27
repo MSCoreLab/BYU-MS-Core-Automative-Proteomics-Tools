@@ -21,11 +21,6 @@ import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-# FIX: Explicitly set MIME type for .js files to avoid Windows Registry issues
-# On some Windows machines, .js is served as text/plain, blocking execution.
-mimetypes.add_type('application/javascript', '.js')
-mimetypes.add_type('text/css', '.css')
-
 matplotlib.use('Agg')  # Non-interactive backend
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
@@ -33,27 +28,6 @@ CORS(app)  # Enable CORS for React dev server
 
 # Set dark mode for matplotlib
 plt.style.use('dark_background')
-
-
-@app.after_request
-def add_security_headers(response):
-    """Add robust headers to bypass corporate security policies and caching issues."""
-    # Force correct MIME types
-    if request.path.endswith('.js'):
-        response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
-    elif request.path.endswith('.css'):
-        response.headers['Content-Type'] = 'text/css; charset=utf-8'
-
-    # Disable caching completely to ensure fresh loads
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-
-    # Permissive CSP to allow local execution even with strict Group Policy
-    # "unsafe-eval" is often needed for dev builds or specific React setups
-    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;"
-
-    return response
 
 
 # Shared utility functions
@@ -426,7 +400,6 @@ class DataProcessor:
         }
 
 
-
 class PlotGenerator:
     """Handles all matplotlib plotting and visualization logic for web backend."""
 
@@ -669,6 +642,31 @@ If you are interested in tweaking or extending the functionality of the webapp i
 processor = DataProcessor()
 plotter = PlotGenerator(processor)
 uploaded_files = {}  # Store uploaded files temporarily
+
+# FIX: Explicitly set MIME type for .js files to avoid Windows Registry issues
+# On some Windows machines, .js is served as text/plain, blocking execution.
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('text/css', '.css')
+
+@app.after_request
+def add_security_headers(response):
+    """Add robust headers to bypass corporate security policies and caching issues."""
+    # Force correct MIME types
+    if request.path.endswith('.js'):
+        response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+    elif request.path.endswith('.css'):
+        response.headers['Content-Type'] = 'text/css; charset=utf-8'
+
+    # Disable caching completely to ensure fresh loads
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+
+    # Permissive CSP to allow local execution even with strict Group Policy
+    # "unsafe-eval" is often needed for dev builds or specific React setups
+    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;"
+
+    return response
 
 
 # Flask routes
